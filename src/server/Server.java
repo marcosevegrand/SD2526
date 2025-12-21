@@ -6,6 +6,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import server.ThreadPool;
 
 /**
  * Orquestrador central do serviço de backend.
@@ -33,7 +34,7 @@ public class Server {
         StorageEngine se = new StorageEngine(S, D);
         NotificationManager nm = new NotificationManager();
         // A pool agorade 100 threads permite lidar com um volume elevado de pedidos concorrentes
-        ExecutorService wp = Executors.newFixedThreadPool(100);
+        ThreadPool wp = new ThreadPool(100);
 
         try (ServerSocket ss = new ServerSocket(port)) {
             System.out.println("Servidor ativo em: " + port);

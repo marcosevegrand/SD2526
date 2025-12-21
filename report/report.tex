@@ -1,0 +1,173 @@
+\documentclass[11pt, a4paper]{article}
+
+% --- CONFIGURAÇÕES DE FONTE E LÍNGUA ANTERIORES ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[portuguese]{babel} % Use 'portuges' se houver erro de hifenização
+
+% --- PACOTES ---
+\usepackage[top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm]{geometry}
+\usepackage{titlesec}
+\usepackage{setspace}
+\usepackage{indentfirst}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{rotating}
+
+% Configuração de cores para código
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstset{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\small,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+
+\begin{document}
+
+% --- CAPA ---
+\begin{titlepage}
+    \begin{center}
+        \vspace*{1cm}
+
+        \Large
+        \textbf{Universidade do Minho}\\
+        \large
+        Escola de Engenharia\\
+        Licenciatura em Engenharia Informática
+
+        \vfill
+
+        \huge
+        \textbf{Sistemas Distribuídos}\\
+        \LARGE
+        Trabalho Prático: Base de Dados para Séries Temporais
+
+        \vfill
+
+        \large
+        \textbf{Grupo X}\\
+        \vspace{0.5cm}
+        \begin{tabular}{ll}
+            Número & Nome \\
+            \hline
+            Axxxxx & Francisco Martins \\
+            Axxxxx & Hugo Soares \\
+            Axxxxx & Nuno Rebelo \\
+            A106807 & Marco Sèvegrand \\
+        \end{tabular}
+
+        \vfill
+
+        \large
+        Braga, 9 de janeiro de 2026
+
+    \end{center}
+\end{titlepage}
+
+\newpage
+\pagenumbering{arabic}
+\setstretch{1.1}
+
+% --- CONTEÚDO ---
+
+\section{Introdução}
+Este relatório detalha o desenvolvimento de um serviço distribuído para o registo e agregação de eventos de vendas em séries temporais. O sistema foi concebido para suportar múltiplos clientes concorrentes através de sockets TCP, utilizando um protocolo binário otimizado. O foco principal da implementação incide na eficiência da gestão de memória e disco, bem como na correta sincronização de pedidos concorrentes.
+
+\section{Arquitetura e Fluxo do Programa}
+O sistema segue um modelo cliente-servidor clássico, mas introduz camadas de abstração para lidar com a concorrência e a persistência de dados.
+
+\subsection{Fluxo de Operação}
+\begin{enumerate}
+    \item \textbf{Inicialização}: O servidor inicia os componentes de armazenamento e autenticação, carregando o estado anterior de ficheiros binários.
+    \item \textbf{Conexão}: Um cliente liga-se via TCP. O servidor cria uma thread dedicada (\texttt{ClientHandler}) para ler do socket.
+    \item \textbf{Pedidos}: O cliente (via \texttt{UI}) envia pedidos através da \texttt{ClientLib}. Para suportar concorrência no mesmo socket, o \texttt{Demultiplexer} gere as etiquetas (\textit{tags}) de cada mensagem.
+    \item \textbf{Processamento}: No servidor, a leitura do socket é separada do processamento lógico através de um \texttt{ExecutorService} (Pool de threads), permitindo que um único cliente submeta múltiplos pedidos sem ser bloqueado por operações lentas.
+    \item \textbf{Resposta}: O servidor devolve a resposta com a mesma \textit{tag}, que o cliente usa para desbloquear a thread que aguardava o resultado.
+\end{enumerate}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.9\textwidth]{arquitetura2.png}
+  \caption{Diagrama da arquitetura do sistema e fluxo de mensagens entre componentes.}
+  \label{fig:arquitetura}
+\end{figure}
+
+\section{Implementação por Requisitos}
+
+\subsection{1. Autenticação e Registo do Utilizador}
+\textbf{Implementação:} Realizada na classe \texttt{UserManager}. Os utilizadores são armazenados num \texttt{HashMap} protegido por um \texttt{ReentrantLock}.
+\\ \textbf{Decisões:} Conforme exigido, o servidor rejeita qualquer comando se a flag \texttt{authenticated} for falsa. A persistência é feita num ficheiro \texttt{users.bin}.
+
+\subsection{2. Registo de Eventos e Novo Dia}
+\textbf{Implementação:} A classe \texttt{StorageEngine} mantém uma lista \texttt{currentEvents} em memória. O comando \texttt{newDay} move estes eventos para um ficheiro \texttt{day\_X.dat}.
+\\ \textbf{Decisões:} A decisão de usar \texttt{DataOutputStream} com \texttt{BufferedOutputStream} visou minimizar o número de acessos físicos ao disco, seguindo as diretrizes do enunciado para eficiência.
+
+\subsection{3. Agregação de Informação (Lazy)}
+\textbf{Implementação:} O método \texttt{aggregate} processa apenas os dias solicitados. Utiliza-se a \texttt{aggCache} para guardar resultados parciais por par dia/produto.
+\\ \textbf{Decisões:} O cálculo só ocorre no primeiro pedido (\textit{lazy loading}). Os resultados são mantidos em cache e descartados quando saem da janela de interesse $D$, poupando recursos de CPU.
+
+\subsection{4. Filtragem com Serialização Compacta}
+\textbf{Implementação:} No \texttt{ClientHandler.handleFilter}, é construído um dicionário de nomes de produtos únicos presentes na série temporal.
+\\ \textbf{Decisões:} O envio de um dicionário inicial seguido de índices inteiros cumpre o requisito de reduzir o tráfego de rede em listas extensas de eventos repetitivos.
+
+\subsection{5. Notificações de Ocorrências}
+\textbf{Implementação:} A classe \texttt{NotificationManager} orquestra o bloqueio de threads usando \texttt{Condition}.
+\\ \textbf{Decisões:} Esta abordagem permite a espera passiva eficiente. As threads são acordadas por \texttt{signalAll()} quando ocorre uma venda ou quando o dia é encerrado.
+
+\subsection{6. Suporte a Clientes Multi-threaded}
+\textbf{Implementação:} O \texttt{Demultiplexer} desacopla a receção de dados da sua utilização, associando cada resposta à sua thread de origem.
+\\ \textbf{Decisões:} Esta estrutura garante que operações longas no servidor não bloqueiam a fluidez de outros pedidos do mesmo cliente.
+
+\subsection{7. Persistência e Limites de Memória (S e D)}
+\textbf{Implementação:} A cache \texttt{loadedSeries} utiliza a política LRU para limitar o número de ficheiros em RAM.
+\\ \textbf{Decisões:} O limite $S$ é respeitado rigorosamente; dados extraídos do disco para agregações fora da cache são processados de forma volátil se a cache estiver na sua capacidade máxima.
+
+\section{Makefile e Execução}
+A \texttt{Makefile} automatiza a gestão do projeto, desde a criação de diretórios até à execução de testes.
+
+\subsection{Comandos Disponíveis}
+\begin{itemize}
+    \item \texttt{make}: Compila todos os componentes e prepara as pastas de dados.
+    \item \texttt{make run-server}: Lança o serviço de backend.
+    \item \texttt{make run-client-cli}: Lança a consola interativa de utilizador.
+    \item \texttt{make run-feat-test}: Executa testes funcionais às notificações.
+    \item \texttt{make run-stress-test}: Valida a integridade sob carga concorrente.
+    \item \texttt{make clean}: Limpa o ambiente de desenvolvimento.
+\end{itemize}
+
+\section{Utilização de Ferramentas de IA}
+Declara-se a utilização de IA para auxílio na redação técnica deste relatório, na estruturação dos comentários Javadoc e na definição inicial dos cenários de teste de stress. Toda a lógica de sincronização foi validada manualmente pelo grupo.
+
+\section{Conclusão}
+O sistema desenvolvido responde a todos os desafios do enunciado, garantindo persistência, concorrência e uma gestão de recursos otimizada para o processamento de séries temporais de grande escala.
+
+\newpage
+\appendix
+
+\begin{sidewaysfigure}
+    \centering
+    \includegraphics[width=0.8\textwidth]{arquitetura2.png}
+    \caption{Diagrama Detalhado da Arquitetura (Vista Panorâmica)}
+    \label{fig:arquitetura_full}
+\end{sidewaysfigure}
+
+\end{document}

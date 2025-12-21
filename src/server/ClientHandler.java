@@ -17,7 +17,7 @@ public class ClientHandler implements Runnable {
     private final UserManager userManager;
     private final StorageEngine storage;
     private final NotificationManager notify;
-    private final ExecutorService workerPool;
+    private final ThreadPool workerPool;
     private boolean authenticated = false;
 
     /**
@@ -32,13 +32,13 @@ public class ClientHandler implements Runnable {
         UserManager um,
         StorageEngine se,
         NotificationManager nm,
-        ExecutorService pool
+        ThreadPool wp
     ) {
         this.stream = s;
         this.userManager = um;
         this.storage = se;
         this.notify = nm;
-        this.workerPool = pool;
+        this.workerPool = wp;
     }
 
     /**
