@@ -11,7 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-public class StressTest {
+public class FeatTest {
 
     private static final String HOST = "localhost";
     private static final int PORT = 12345;

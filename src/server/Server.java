@@ -36,7 +36,10 @@ public class Server {
         ExecutorService wp = Executors.newFixedThreadPool(100);
 
         try (ServerSocket ss = new ServerSocket(port)) {
-            System.out.println("Servidor ativo no porto: " + port);
+            System.out.println("Servidor ativo em: " + port);
+            System.out.println(
+                "Mecanismo de persistência iniciado com S=10, D=365"
+            );
 
             while (true) {
                 Socket s = ss.accept();
