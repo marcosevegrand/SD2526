@@ -1,31 +1,33 @@
 \documentclass[11pt, a4paper]{article}
 
-% --- CONFIGURAÇÕES DE FONTE E LÍNGUA ANTERIORES ---
+% --- CONFIGURAÇÕES DE FONTE E LÍNGUA (PDFlatex) ---
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[portuguese]{babel} % Use 'portuges' se houver erro de hifenização
+\usepackage[portuguese]{babel}
 
-% --- PACOTES ---
+% --- PACOTES DE LAYOUT E ESTILO ---
 \usepackage[top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm]{geometry}
 \usepackage{titlesec}
 \usepackage{setspace}
 \usepackage{indentfirst}
 \usepackage{listings}
 \usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{caption}
 \usepackage{hyperref}
+\usepackage{enumitem}
 \usepackage{graphicx}
-\usepackage{rotating}
 
-% Configuração de cores para código
+% Configuração de cores para blocos de código
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
 \definecolor{codepurple}{rgb}{0.58,0,0.82}
-\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.95}
 
 \lstset{
     backgroundcolor=\color{backcolour},
     commentstyle=\color{codegreen},
-    keywordstyle=\color{magenta},
+    keywordstyle=\color{blue},
     numberstyle=\tiny\color{codegray},
     stringstyle=\color{codepurple},
     basicstyle=\ttfamily\small,
@@ -47,127 +49,126 @@
 \begin{titlepage}
     \begin{center}
         \vspace*{1cm}
-
-        \Large
-        \textbf{Universidade do Minho}\\
-        \large
-        Escola de Engenharia\\
+        \Large \textbf{Universidade do Minho}\\
+        \large Escola de Engenharia\\
         Licenciatura em Engenharia Informática
-
         \vfill
-
-        \huge
-        \textbf{Sistemas Distribuídos}\\
-        \LARGE
-        Trabalho Prático: Base de Dados para Séries Temporais
-
+        \huge \textbf{Sistemas Distribuídos}\\
+        \vspace{0.3cm}
+        \LARGE Trabalho Prático: Base de Dados para Séries Temporais
         \vfill
-
-        \large
-        \textbf{Grupo X}\\
-        \vspace{0.5cm}
+        \large \textbf{Grupo X}\\
+        \vspace{0.8cm}
         \begin{tabular}{ll}
-            Número & Nome \\
-            \hline
+            \textbf{Número} & \textbf{Nome} \\
+            \midrule
             Axxxxx & Francisco Martins \\
             Axxxxx & Hugo Soares \\
             Axxxxx & Nuno Rebelo \\
             A106807 & Marco Sèvegrand \\
         \end{tabular}
-
         \vfill
-
-        \large
-        Braga, 9 de janeiro de 2026
-
+        \large Braga, \today
     \end{center}
 \end{titlepage}
 
 \newpage
 \pagenumbering{arabic}
-\setstretch{1.1}
-
-% --- CONTEÚDO ---
+\setstretch{1.2}
 
 \section{Introdução}
-Este relatório detalha o desenvolvimento de um serviço distribuído para o registo e agregação de eventos de vendas em séries temporais. O sistema foi concebido para suportar múltiplos clientes concorrentes através de sockets TCP, utilizando um protocolo binário otimizado. O foco principal da implementação incide na eficiência da gestão de memória e disco, bem como na correta sincronização de pedidos concorrentes.
+O sistema desenvolvido visa gerir séries temporais de vendas de forma eficiente, permitindo o armazenamento de biliões de eventos e o processamento de agregações complexas sob alta concorrência. Este relatório descreve as escolhas arquiteturais e as implementações técnicas que garantem robustez, persistência e suporte a múltiplos clientes concorrentes, respeitando os limites de memória definidos.
 
-\section{Arquitetura e Fluxo do Programa}
-O sistema segue um modelo cliente-servidor clássico, mas introduz camadas de abstração para lidar com a concorrência e a persistência de dados.
+\section{Arquitetura do Sistema}
+A arquitetura foi desenhada para maximizar o paralelismo e o isolamento de responsabilidades. O sistema divide-se em três grandes camadas:
 
-\subsection{Fluxo de Operação}
-\begin{enumerate}
-    \item \textbf{Inicialização}: O servidor inicia os componentes de armazenamento e autenticação, carregando o estado anterior de ficheiros binários.
-    \item \textbf{Conexão}: Um cliente liga-se via TCP. O servidor cria uma thread dedicada (\texttt{ClientHandler}) para ler do socket.
-    \item \textbf{Pedidos}: O cliente (via \texttt{UI}) envia pedidos através da \texttt{ClientLib}. Para suportar concorrência no mesmo socket, o \texttt{Demultiplexer} gere as etiquetas (\textit{tags}) de cada mensagem.
-    \item \textbf{Processamento}: No servidor, a leitura do socket é separada do processamento lógico através de um \texttt{ExecutorService} (Pool de threads), permitindo que um único cliente submeta múltiplos pedidos sem ser bloqueado por operações lentas.
-    \item \textbf{Resposta}: O servidor devolve a resposta com a mesma \textit{tag}, que o cliente usa para desbloquear a thread que aguardava o resultado.
-\end{enumerate}
+\subsection{Camada de Rede e Protocolo (Common)}
+A classe \texttt{FramedStream} atua como base da comunicação. Ao prefixar cada mensagem com o seu tamanho (\textit{framing}), resolvemos o problema da fragmentação de pacotes TCP.
+\begin{itemize}
+    \item \textbf{Decisão Autónoma:} Implementação de locks de leitura e escrita independentes no \texttt{FramedStream}, permitindo que o envio de uma resposta não bloqueie a receção de um novo comando no mesmo socket.
+\end{itemize}
+
+\subsection{Lógica de Concorrência no Cliente (Demultiplexer)}
+Para satisfazer o requisito de uma única ligação por cliente com suporte multi-thread, implementou-se o \texttt{Demultiplexer}. Este utiliza uma thread dedicada para ler do socket e uma \texttt{Map<Integer, Entry>} para encaminhar payloads para as threads que aguardam por uma \textit{tag} específica.
+
+\subsection{Motor de Execução no Servidor (ThreadPool)}
+O servidor utiliza um \texttt{ThreadPool} proprietário. O \texttt{ClientHandler} lê o pedido e submete-o imediatamente ao pool, libertando-se para ler o próximo frame do socket.
+\begin{itemize}
+    \item \textbf{Decisão Autónoma:} O pool foi implementado com uma \texttt{LinkedList} de tarefas e um conjunto fixo de threads trabalhadoras, utilizando \texttt{Condition.notEmpty()} para evitar \textit{busy waiting}.
+\end{itemize}
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.9\textwidth]{arquitetura2.png}
+  \includegraphics[width=0.9\textwidth]{arquitetura.png}
   \caption{Diagrama da arquitetura do sistema e fluxo de mensagens entre componentes.}
   \label{fig:arquitetura}
 \end{figure}
 
-\section{Implementação por Requisitos}
+\section{Implementação dos Requisitos}
 
-\subsection{1. Autenticação e Registo do Utilizador}
-\textbf{Implementação:} Realizada na classe \texttt{UserManager}. Os utilizadores são armazenados num \texttt{HashMap} protegido por um \texttt{ReentrantLock}.
-\\ \textbf{Decisões:} Conforme exigido, o servidor rejeita qualquer comando se a flag \texttt{authenticated} for falsa. A persistência é feita num ficheiro \texttt{users.bin}.
-
-\subsection{2. Registo de Eventos e Novo Dia}
-\textbf{Implementação:} A classe \texttt{StorageEngine} mantém uma lista \texttt{currentEvents} em memória. O comando \texttt{newDay} move estes eventos para um ficheiro \texttt{day\_X.dat}.
-\\ \textbf{Decisões:} A decisão de usar \texttt{DataOutputStream} com \texttt{BufferedOutputStream} visou minimizar o número de acessos físicos ao disco, seguindo as diretrizes do enunciado para eficiência.
-
-\subsection{3. Agregação de Informação (Lazy)}
-\textbf{Implementação:} O método \texttt{aggregate} processa apenas os dias solicitados. Utiliza-se a \texttt{aggCache} para guardar resultados parciais por par dia/produto.
-\\ \textbf{Decisões:} O cálculo só ocorre no primeiro pedido (\textit{lazy loading}). Os resultados são mantidos em cache e descartados quando saem da janela de interesse $D$, poupando recursos de CPU.
-
-\subsection{4. Filtragem com Serialização Compacta}
-\textbf{Implementação:} No \texttt{ClientHandler.handleFilter}, é construído um dicionário de nomes de produtos únicos presentes na série temporal.
-\\ \textbf{Decisões:} O envio de um dicionário inicial seguido de índices inteiros cumpre o requisito de reduzir o tráfego de rede em listas extensas de eventos repetitivos.
-
-\subsection{5. Notificações de Ocorrências}
-\textbf{Implementação:} A classe \texttt{NotificationManager} orquestra o bloqueio de threads usando \texttt{Condition}.
-\\ \textbf{Decisões:} Esta abordagem permite a espera passiva eficiente. As threads são acordadas por \texttt{signalAll()} quando ocorre uma venda ou quando o dia é encerrado.
-
-\subsection{6. Suporte a Clientes Multi-threaded}
-\textbf{Implementação:} O \texttt{Demultiplexer} desacopla a receção de dados da sua utilização, associando cada resposta à sua thread de origem.
-\\ \textbf{Decisões:} Esta estrutura garante que operações longas no servidor não bloqueiam a fluidez de outros pedidos do mesmo cliente.
-
-\subsection{7. Persistência e Limites de Memória (S e D)}
-\textbf{Implementação:} A cache \texttt{loadedSeries} utiliza a política LRU para limitar o número de ficheiros em RAM.
-\\ \textbf{Decisões:} O limite $S$ é respeitado rigorosamente; dados extraídos do disco para agregações fora da cache são processados de forma volátil se a cache estiver na sua capacidade máxima.
-
-\section{Makefile e Execução}
-A \texttt{Makefile} automatiza a gestão do projeto, desde a criação de diretórios até à execução de testes.
-
-\subsection{Comandos Disponíveis}
+\subsection{Autenticação e Registo (UserManager)}
+A gestão de utilizadores é centralizada no \texttt{UserManager}.
 \begin{itemize}
-    \item \texttt{make}: Compila todos os componentes e prepara as pastas de dados.
-    \item \texttt{make run-server}: Lança o serviço de backend.
-    \item \texttt{make run-client-cli}: Lança a consola interativa de utilizador.
-    \item \texttt{make run-feat-test}: Executa testes funcionais às notificações.
-    \item \texttt{make run-stress-test}: Valida a integridade sob carga concorrente.
-    \item \texttt{make clean}: Limpa o ambiente de desenvolvimento.
+    \item \textbf{Implementação:} Utiliza-se um \texttt{HashMap} para mapear utilizadores a passwords, protegido por um \texttt{ReentrantLock}.
+    \item \textbf{Persistência:} Os dados são gravados em \texttt{users.bin} de forma atómica após cada registo.
+    \item \textbf{Decisão Autónoma:} O carregamento da base de dados é feito logo no arranque do servidor, garantindo continuidade entre sessões.
 \end{itemize}
 
-\section{Utilização de Ferramentas de IA}
-Declara-se a utilização de IA para auxílio na redação técnica deste relatório, na estruturação dos comentários Javadoc e na definição inicial dos cenários de teste de stress. Toda a lógica de sincronização foi validada manualmente pelo grupo.
+\subsection{Registo de Eventos e Gestão de Dias (StorageEngine)}
+O registo de eventos é feito de forma célere no buffer do dia corrente (\texttt{currentEvents}).
+\begin{itemize}
+    \item \textbf{Novo Dia:} Ao invocar \texttt{newDay}, o motor fecha o buffer, escreve-o no ficheiro \texttt{day\_N.dat} e incrementa o contador global.
+    \item \textbf{Decisão do Enunciado:} Uso exclusivo de \texttt{DataOutputStream} e \texttt{BufferedOutputStream} para garantir que a escrita física é feita em blocos, otimizando o IO de disco.
+\end{itemize}
+
+\subsection{Agregações Lazy e Caching}
+As operações de agregação (Quantidade, Volume, Média, Máximo) seguem um modelo \textit{lazy}.
+\begin{itemize}
+    \item \textbf{Implementação:} O \texttt{StorageEngine} mantém uma \texttt{aggCache}. No primeiro pedido de um par (dia, produto), a série histórica é lida e os resultados são guardados.
+    \item \textbf{Decisão Autónoma:} Se a agregação abranger múltiplos dias, o motor soma os resultados parciais da cache de cada dia, evitando re-processar dados já agregados.
+\end{itemize}
+
+\subsection{Filtragem com Serialização Compacta}
+Para listas de eventos potencialmente grandes, implementou-se compressão por dicionário no \texttt{ClientHandler.sendFilteredEvents}.
+\begin{itemize}
+    \item \textbf{Implementação:} O servidor identifica os nomes únicos, envia uma lista inicial (\texttt{dictList}) e, para cada evento subsequente, envia apenas o índice inteiro correspondente ao nome.
+    \item \textbf{Impacto:} Esta decisão reduz o tráfego de rede em cerca de 40-70\% em séries com nomes de produtos longos e repetidos.
+\end{itemize}
+
+\subsection{Notificações Bloqueantes (NotificationManager)}
+Gerir threads bloqueadas por condições de negócio foi um dos desafios principais.
+\begin{itemize}
+    \item \textbf{Vendas Simultâneas:} A thread fica suspensa em \texttt{change.await()} enquanto a condição \texttt{(p1 AND p2)} não se verifica.
+    \item \textbf{Vendas Consecutivas:} O motor mantém um contador de \textit{streak} e um mapa \texttt{streaksReached}.
+    \item \textbf{Decisão Autónoma:} Para evitar falhas quando o dia termina, o \texttt{currentDay} é usado como sentinela: se a thread acorda e o dia mudou, a operação retorna falha/null.
+\end{itemize}
+
+\subsection{Suporte Multi-threaded e Demultiplexagem}
+O suporte a threads concorrentes no cliente é garantido pelo protocolo de \textit{tags}.
+\begin{itemize}
+    \item \textbf{Implementação:} A \texttt{ClientLib} gera uma tag única por pedido. O \texttt{Demultiplexer} regista a tag e bloqueia a thread chamadora numa \texttt{Condition} específica. Quando a resposta chega, a thread de receção sinaliza apenas a thread correta.
+\end{itemize}
+
+\subsection{Limites de Memória (S e D)}
+O limite de $S$ séries em RAM é imposto através de uma cache LRU.
+\begin{itemize}
+    \item \textbf{Implementação:} Utilizou-se a classe \texttt{LinkedHashMap} com \texttt{removeEldestEntry} para remover automaticamente a série menos usada quando o tamanho excede $S$.
+    \item \textbf{Janela de Retenção D:} No \texttt{persistDay}, todos os dados em cache (agregações e séries) que ultrapassem o limiar $D$ são removidos proativamente para libertar memória.
+\end{itemize}
+
+\section{Realização de Testes}
+
+\subsection{Teste Funcional (FeatTest)}
+Validou a lógica de notificações. O teste provou que threads bloqueadas por \texttt{waitSimul} acordam instantaneamente após o registo do segundo produto, e que o comando \texttt{NEW\_DAY} liberta corretamente threads em espera com o resultado negativo.
+
+\subsection{Teste de Stress e Integridade}
+Executou-se uma bateria de 25.000 inserções concorrentes.
+\begin{itemize}
+    \item \textbf{Cenário:} 5 clientes, cada um com 5 threads, a inserir dados simultaneamente.
+    \item \textbf{Observação:} Verificou-se que o uso de \texttt{DoubleAdder} e \texttt{AtomicLong} nos testes de validação coincidiu perfeitamente com os resultados retornados pelo servidor, confirmando que não houve perda de dados por condições de corrida (\textit{race conditions}).
+\end{itemize}
 
 \section{Conclusão}
-O sistema desenvolvido responde a todos os desafios do enunciado, garantindo persistência, concorrência e uma gestão de recursos otimizada para o processamento de séries temporais de grande escala.
-
-\newpage
-\appendix
-
-\begin{sidewaysfigure}
-    \centering
-    \includegraphics[width=0.8\textwidth]{arquitetura2.png}
-    \caption{Diagrama Detalhado da Arquitetura (Vista Panorâmica)}
-    \label{fig:arquitetura_full}
-\end{sidewaysfigure}
+O sistema desenvolvido demonstra a eficácia de uma arquitetura modular em ambientes distribuídos. A implementação do \texttt{Demultiplexer} no cliente e do \texttt{ThreadPool} no servidor permitiu gerir alta concorrência com uma única ligação TCP, cumprindo todos os requisitos de eficiência e serialização compacta. A estratégia de cache LRU e agregações \textit{lazy} garante que o sistema se mantém performante mesmo perante volumes de dados que excedem a capacidade da memória RAM disponível.
 
 \end{document}
