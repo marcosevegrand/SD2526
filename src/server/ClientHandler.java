@@ -96,6 +96,7 @@ public class ClientHandler implements Runnable {
                 case Protocol.FILTER -> handleFilter(f.tag, in);
                 case Protocol.WAIT_SIMUL -> handleWaitSimul(f.tag, in);
                 case Protocol.WAIT_CONSEC -> handleWaitConsec(f.tag, in);
+                case Protocol.GET_CURRENT_DAY -> handleGetCurrentDay(f.tag);
             }
         } catch (Exception e) {
             sendError(f.tag, e.getMessage());
@@ -213,6 +214,18 @@ public class ClientHandler implements Runnable {
         String prod = notify.waitConsecutive(in.readInt());
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         if (prod != null) new DataOutputStream(b).writeUTF(prod);
+        stream.send(tag, Protocol.STATUS_OK, b.toByteArray());
+    }
+
+    /**
+     * Responde ao cliente com o valor inteiro do dia atual do servidor.
+     * @param tag Tag do pedido original.
+     * @throws IOException Erro de rede.
+     */
+    private void handleGetCurrentDay(int tag) throws IOException {
+        int day = storage.getCurrentDay();
+        ByteArrayOutputStream b = new ByteArrayOutputStream();
+        new DataOutputStream(b).writeInt(day);
         stream.send(tag, Protocol.STATUS_OK, b.toByteArray());
     }
 

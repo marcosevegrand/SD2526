@@ -40,6 +40,9 @@ public class Protocol {
     /** Espera por sequência de vendas consecutivas. */
     public static final int WAIT_CONSEC = 11;
 
+    /** Comando para consultar o dia atual do servidor. */
+    public static final int GET_CURRENT_DAY = 12;
+
     /** Resposta positiva do servidor. */
     public static final int STATUS_OK = 200;
 

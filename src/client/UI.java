@@ -48,7 +48,13 @@ public class UI {
                     }
 
                     if (cmd.equals("ajuda")) {
-                        printDetailedHelp();
+                        printHelp();
+                        continue;
+                    }
+
+                    // Comando utilitário para limpar a consola
+                    if (cmd.equals("limpar")) {
+                        handleClear();
                         continue;
                     }
 
@@ -82,6 +88,16 @@ public class UI {
             );
             e.printStackTrace();
         }
+    }
+
+    /**
+     * Limpa o ecrã do terminal utilizando sequências de escape ANSI.
+     * A sequência \033[H move o cursor para o início e \033[2J limpa o conteúdo.
+     */
+    private static void handleClear() {
+        System.out.print("\033[H\033[2J");
+        System.out.flush();
+        System.out.println("Consola limpa. Digite 'ajuda' se necessário.");
     }
 
     /**
@@ -141,6 +157,10 @@ public class UI {
         ClientLib lib
     ) throws Exception {
         switch (cmd) {
+            case "dia":
+                int currentDay = lib.getCurrentDay();
+                System.out.println("Dia atual no servidor: " + currentDay);
+                break;
             case "evento":
                 if (parts.length != 4) throw new IllegalArgumentException(
                     "Sintaxe: evento <produto> <qtd> <preço>"
@@ -259,7 +279,7 @@ public class UI {
      * Exibe o manual de instruções detalhado para o utilizador.
      * A intenção é servir de guia rápido para a sintaxe de cada comando.
      */
-    private static void printDetailedHelp() {
+    private static void printHelp() {
         System.out.println("\n--- MANUAL DE COMANDOS ---");
         System.out.println("Acesso:");
         System.out.println(
@@ -270,6 +290,9 @@ public class UI {
         );
         System.out.println("  sair                     - Encerra a aplicação.");
         System.out.println("\nDados:");
+        System.out.println(
+            "  dia                      - Consulta o dia atual no servidor."
+        );
         System.out.println(
             "  evento <prod> <qtd> <p>  - Regista uma venda de um produto no dia atual."
         );

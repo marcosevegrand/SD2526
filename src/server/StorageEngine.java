@@ -9,6 +9,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * Motor de armazenamento especializado em séries temporais com gestão de memória.
  * A intenção é suportar grandes volumes de dados através de persistência em ficheiro,
  * cache LRU para séries frequentes e cache preguiçosa (lazy) para resultados agregados.
+ * O motor preserva o contador do dia atual entre reinicializações.
  */
 public class StorageEngine {
 
@@ -17,6 +18,7 @@ public class StorageEngine {
     private final ReentrantLock lock = new ReentrantLock();
     private int currentDay = 0;
     private final List<Sale> currentEvents = new ArrayList<>();
+    private final String statePath = "data/state.bin";
 
     /**
      * Cache LRU (Least Recently Used) para manter apenas as S séries mais usadas em memória.
@@ -45,6 +47,53 @@ public class StorageEngine {
     public StorageEngine(int S, int D) {
         this.S = S;
         this.D = D;
+        loadState();
+    }
+
+    /**
+     * Carrega o estado global do motor de armazenamento (dia atual) do disco.
+     * A intenção é evitar a sobreposição de ficheiros de dados após um restart.
+     */
+    private void loadState() {
+        File f = new File(statePath);
+        if (!f.exists()) return;
+        try (DataInputStream in = new DataInputStream(new FileInputStream(f))) {
+            this.currentDay = in.readInt();
+        } catch (IOException e) {
+            System.err.println(
+                "ERRO: Falha ao carregar estado do motor: " + e.getMessage()
+            );
+        }
+    }
+
+    /**
+     * Persiste o contador do dia atual no sistema de ficheiros.
+     */
+    private void saveState() {
+        try (
+            DataOutputStream out = new DataOutputStream(
+                new FileOutputStream(statePath)
+            )
+        ) {
+            out.writeInt(currentDay);
+        } catch (IOException e) {
+            System.err.println(
+                "ERRO: Falha ao salvar estado do motor: " + e.getMessage()
+            );
+        }
+    }
+
+    /**
+     * Retorna o dia atual de operação do servidor.
+     * @return O contador do dia corrente.
+     */
+    public int getCurrentDay() {
+        lock.lock();
+        try {
+            return this.currentDay;
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -63,7 +112,7 @@ public class StorageEngine {
     }
 
     /**
-     * Escreve os eventos acumulados do dia em disco e limpa dados obsoletos.
+     * Escreve os eventos acumulados do dia em disco, limpa dados obsoletos, e atualiza o estado persistente.
      * @throws IOException Se falhar a escrita física.
      */
     public void persistDay() throws IOException {
@@ -83,6 +132,7 @@ public class StorageEngine {
             }
             currentEvents.clear();
             currentDay++;
+            saveState();
 
             // Remoção proativa de dados que saíram da janela de interesse (D)
             int threshold = currentDay - D;

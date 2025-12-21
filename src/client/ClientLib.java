@@ -220,6 +220,17 @@ public class ClientLib implements AutoCloseable {
     }
 
     /**
+     * Consulta o dia atual no qual o servidor está a registar eventos.
+     * @return O número do dia atual.
+     * @throws IOException Erro de rede.
+     * @throws InterruptedException Operação interrompida.
+     */
+    public int getCurrentDay() throws IOException, InterruptedException {
+        byte[] res = request(Protocol.GET_CURRENT_DAY, new byte[0]);
+        return new DataInputStream(new ByteArrayInputStream(res)).readInt();
+    }
+
+    /**
      * Encerra todos os recursos de rede associados à biblioteca.
      * @throws IOException Se ocorrer um erro ao fechar o demultiplexador ou socket.
      */

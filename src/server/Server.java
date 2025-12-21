@@ -20,21 +20,20 @@ public class Server {
      * @throws Exception Em caso de falhas críticas de hardware ou rede.
      */
     public static void main(String[] args) throws Exception {
-        // Configurações de limite de sistema
-        int S = 10; // Séries em RAM
-        int D = 365; // Dias de retenção
+        int S = 10;
+        int D = 365;
         int port = 12345;
 
         // Garante a existência da pasta de dados para evitar FileNotFoundException
         File dataDir = new File("data");
         if (!dataDir.exists()) dataDir.mkdir();
 
-        // O pool de 100 threads permite lidar com um volume elevado de pedidos concorrentes
-        ExecutorService workerPool = Executors.newFixedThreadPool(100);
-
+        // A inicialização destas classes dispara o carregamento automático do estado persistente
         UserManager um = new UserManager();
         StorageEngine se = new StorageEngine(S, D);
         NotificationManager nm = new NotificationManager();
+        // A pool agorade 100 threads permite lidar com um volume elevado de pedidos concorrentes
+        ExecutorService wp = Executors.newFixedThreadPool(100);
 
         try (ServerSocket ss = new ServerSocket(port)) {
             System.out.println("Servidor ativo no porto: " + port);
@@ -43,17 +42,11 @@ public class Server {
                 Socket s = ss.accept();
                 // Cada socket tem a sua própria thread de escuta para garantir isolamento
                 new Thread(
-                    new ClientHandler(
-                        new FramedStream(s),
-                        um,
-                        se,
-                        nm,
-                        workerPool
-                    )
+                    new ClientHandler(new FramedStream(s), um, se, nm, wp)
                 ).start();
             }
         } finally {
-            workerPool.shutdown();
+            wp.shutdown();
         }
     }
 }
