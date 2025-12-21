@@ -26,7 +26,7 @@ public class StressTest {
     private static final AtomicLong completedThreads = new AtomicLong(0);
 
     public static void main(String[] args) {
-        System.out.println("=== INICIANDO TESTE DE STRESS VERBOSO ===");
+        System.out.println("=== TESTE DE STRESS ===");
         int totalThreads = NUM_CLIENTS * THREADS_PER_CLIENT;
         int totalExpected = totalThreads * INSERTIONS_PER_THREAD;
 

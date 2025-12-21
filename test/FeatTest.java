@@ -21,7 +21,7 @@ public class FeatTest {
     }
 
     public static void main(String[] args) {
-        System.out.println("=== INICIANDO TESTE DE STRESS CONTROLADO ===");
+        System.out.println("=== TESTE DE FUNCIONALIDADES ===");
 
         ExecutorService executor = Executors.newCachedThreadPool();
         CountDownLatch noiseLatch = new CountDownLatch(2);
