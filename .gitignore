@@ -1,0 +1,32 @@
+# --- Binários e Compilação ---
+# Pasta definida na Makefile para os ficheiros .class
+bin/
+*.class
+
+# --- Dados e Persistência ---
+# Pasta onde as séries temporais são persistidas em disco
+data/
+*.dat
+*.bin
+
+# --- IDEs e Configurações de Editor ---
+# IntelliJ
+.idea/
+*.iml
+
+# Eclipse
+.metadata/
+.classpath
+.project
+.settings/
+
+# VS Code
+.vscode/
+
+# --- Sistema Operativo ---
+.DS_Store
+Thumbs.db
+
+# --- Logs e Docs ---
+*.log
+docs/
