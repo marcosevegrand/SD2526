@@ -79,14 +79,14 @@
 \section{Introdução}
 Este projeto implementa um motor de base de dados especializado no armazenamento e processamento eficiente de séries
 temporais de vendas. O sistema permite que múltiplos clientes registem eventos de vendas em tempo real, recuperem
-agregações estatísticas (quantidade, volume, média, máximo) e recebam notificações de padrões específicos. O foco
+aggregações estatísticas (quantidade, volume, média, máximo) e recebam notificações de padrões específicos. O foco
 principal incidiu na conciliação de três desafios: suportar volumes massivos de dados através de persistência em disco,
 manter excelente performance através de cache em memória, e garantir a integridade dos dados num ambiente
 multi-utilizador altamente concorrente.
 
 \section{Arquitetura do Sistema}
 O sistema foi desenhado em camadas: um servidor multi-threaded que recebe pedidos de clientes, delegando o processamento
-a um conjunto de threads de trabalho, enquanto a receção de conexões nunca é interrompida. A persistência segue um
+a um conjunto de threads de trabalho, enquanto a recepção de conexões nunca é interrompida. A persistência segue um
 modelo de separação entre dados voláteis (dia corrente em RAM) e histórico (ficheiros em disco). No cliente, uma biblioteca
 abstrai completamente a complexidade da rede, oferecendo uma interface síncrona enquanto gere assincronia de respostas
 em background através de um demultiplexer baseado em tags.
@@ -155,10 +155,10 @@ gerados para validar automaticamente as funcionalidades implementadas. Todas as 
 e integradas após verificação de conformidade com o protocolo.
 
 \subsection{Geração da Interface de Utilizador}
-A classe \texttt{UI.java} foi gerada atravessando um prompt de IA com o seguinte conteúdo:
+A classe \texttt{UI.java} foi gerada através de um prompt de IA com o seguinte conteúdo:
 
 \begin{quote}
-\textit{``Cria uma interface de linha de comando em Java para um cliente que se conecta a um servidor de séries temporais através da classe ClientLib. A interface deve apresentar um menu interativo com os seguintes comandos: registar username password (cria conta), entrar username password (faz login), evento produto qtd preço (regista uma venda), dia (consultando o dia actual), novodia (fecha o dia), filtrar dia p1 p2... (lista eventos de produtos num dia), qtd/vol/media/max produto dias (agregação de 4 tipos), simul produto1 produto2 (aguarda notificação), consec N (aguarda sequencia de N vendas seguidas). Mantém o estado de autenticação do utilizador, mostra indicadores de estado (autenticado ou visitante), e captura erros de sintaxe informando o utilizador da forma correta de usar cada comando.''}
+\textit{Cria uma interface de linha de comando em Java para um cliente que se conecta a um servidor de séries temporais através da classe ClientLib. A interface deve apresentar um menu interativo com os seguintes comandos: registar username password (cria conta), entrar username password (faz login), evento produto qtd preço (regista uma venda), dia (consultando o dia actual), novodia (fecha o dia), filtrar dia p1 p2... (lista eventos de produtos num dia), qtd/vol/media/max produto dias (agregação de 4 tipos), simul produto1 produto2 (aguarda notificação), consec N (aguarda sequencia de N vendas seguidas). Mantém o estado de autenticação do utilizador, mostra indicadores de estado (autenticado ou visitante), e captura erros de sintaxe informando o utilizador da forma correta de usar cada comando.}
 \end{quote}
 
 O código produzido implementou uma estrutura genérica com ciclo de leitura de comandos, métodos auxiliares para cada categoria de operação e um sistema de ajuda integrado. Foram realizadas validações manuais para garantir que cada comando respeitava o protocolo esperado e que as mensagens de erro fossem apropriadas.
@@ -169,7 +169,7 @@ O código produzido implementou uma estrutura genérica com ciclo de leitura de 
 A classe \texttt{FeatTest.java} foi gerada com o seguinte prompt:
 
 \begin{quote}
-\textit{``Cria um teste JUnit que valida a funcionalidade de notificações simultâneas e consecutivas. O teste deve: 1) Lancar duas threads monitoras em paralelo, uma aguardando waitSimultaneous('Banana', 'Maçã') e outra aguardando waitConsecutive(3). 2) Lancar duas threads de ruído que adicionam alguns eventos variados (Banana, Maçã, Uva). 3) Lancar uma terceira thread que envia 3 eventos de Laranja seguidos. 4) Usar CountDownLatch para sincronizacao e permitir que as threads monitoras acordem quando a condição é atingida ou quando o dia termina. 5) Validar que a quantidade total de Laranjas registada corresponde ao esperado.''}
+\textit{Cria um teste JUnit que valida a funcionalidade de notificações simultâneas e consecutivas. O teste deve: 1) Lançar duas threads monitoras em paralelo, uma aguardando waitSimultaneous com dois produtos e outra aguardando waitConsecutive com um número de repetições. 2) Lançar duas threads de ruído que adicionam alguns eventos variados. 3) Lançar uma terceira thread que envia eventos de um produto seguidos. 4) Usar CountDownLatch para sincronização e permitir que as threads monitoras acordem quando a condição é atingida ou quando o dia termina. 5) Validar que a quantidade total de eventos registada corresponde ao esperado.}
 \end{quote}
 
 O código gerado forneceu um esqueleto com threads executoras, sincronização baseada em latches e logs de progresso. O teste foi refinado manualmente para ajustar timings críticos, adicionar pequenas pausas de sincronização entre eventos para evitar race conditions, e melhorar a legibilidade dos logs de saída.
@@ -178,7 +178,7 @@ O código gerado forneceu um esqueleto com threads executoras, sincronização b
 A classe \texttt{StressTest.java} foi gerada com o seguinte prompt:
 
 \begin{quote}
-\textit{``Cria um teste de stress que submete o servidor a dezenas de milhares de inserções concorrentes. O teste deve: 1) Criar 5 clientes autenticados, cada um com 5 threads de trabalho. 2) Cada thread insere 1000 eventos de um produto (SuperCPU) com quantidade 1 e preço 10.0, perfazendo 25.000 inserções no total. 3) Manter um contador local esperado (quantidade e volume) que será comparado com os valores devolvidos pelo servidor após a persistência. 4) Usar uma CountDownLatch para sincronizar o início de todas as threads, garantindo que começam aproximadamente ao mesmo tempo. 5) Apos a conclusão de todas as inserções, chamar NEW_DAY para persistir os dados. 6) Validar que a quantidade total e volume no servidor correspondem exatamente aos contadores locais, demonstrando que não houve perda de dados durante a concorrência.''}
+\textit{Cria um teste de stress que submete o servidor a dezenas de milhares de inserções concorrentes. O teste deve: 1) Criar 5 clientes autenticados, cada um com 5 threads de trabalho. 2) Cada thread insere 1000 eventos de um produto com quantidade 1 e preço 10.0, perfazendo 25.000 inserções no total. 3) Manter um contador local esperado (quantidade e volume) que será comparado com os valores devolvidos pelo servidor após a persistência. 4) Usar uma CountDownLatch para sincronizar o início de todas as threads, garantindo que começam aproximadamente ao mesmo tempo. 5) Após a conclusão de todas as inserções, chamar NEW\_DAY para persistir os dados. 6) Validar que a quantidade total e volume no servidor correspondem exatamente aos contadores locais, demonstrando que não houve perda de dados durante a concorrência.}
 \end{quote}
 
 O código produzido incluiu um framework completo de execução com pools de threads, mecanismos de sincronização (CountDownLatch), atomicidade nos contadores (AtomicLong e DoubleAdder) e logs detalhados de progresso. O teste foi validado manualmente e executado com sucesso, confirmando a integridade do sistema sob carga massiva.
