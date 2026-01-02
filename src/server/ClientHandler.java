@@ -18,6 +18,9 @@ public class ClientHandler implements Runnable {
     private final StorageEngine storage;
     private final NotificationManager notify;
     private final ThreadPool workerPool;
+    /** Parâmetros do servidor para validação de entrada */
+    private final int S;
+    private final int D;
     /** CORRIGIDO: volatile para garantir visibilidade entre threads. */
     private volatile boolean authenticated = false;
 
@@ -27,19 +30,25 @@ public class ClientHandler implements Runnable {
      * @param se Motor de armazenamento e cache.
      * @param nm Sistema de notificações em tempo real.
      * @param pool Pool global de threads para processamento.
+     * @param S Número máximo de séries em memória.
+     * @param D Janela de retenção de dias históricos.
      */
     public ClientHandler(
         FramedStream s,
         UserManager um,
         StorageEngine se,
         NotificationManager nm,
-        ThreadPool wp
+        ThreadPool wp,
+        int S,
+        int D
     ) {
         this.stream = s;
         this.userManager = um;
         this.storage = se;
         this.notify = nm;
         this.workerPool = wp;
+        this.S = S;
+        this.D = D;
     }
 
     /**
@@ -172,9 +181,9 @@ public class ClientHandler implements Runnable {
         String prod = in.readUTF();
         int days = in.readInt();
         
-        // CORRIGIDO: Validação do parâmetro 'days'
-        if (days < 1 || days > 365) {  // D=365 conforme Server.java
-            sendError(f.tag, "Parâmetro 'days' inválido: " + days + ". Esperado [1, 365]");
+        // CORRIGIDO: Validação do parâmetro 'days' usando o parâmetro D do servidor
+        if (days < 1 || days > D) {
+            sendError(f.tag, "Parâmetro 'days' inválido: " + days + ". Esperado [1, " + D + "]");
             return;
         }
         
@@ -194,9 +203,9 @@ public class ClientHandler implements Runnable {
         int day = in.readInt();
         int size = in.readInt();
         
-        // CORRIGIDO: Valida que 'day' está no intervalo válido
-        if (day < 0 || day > 365) {
-            sendError(tag, "Parâmetro 'day' inválido: " + day);
+        // CORRIGIDO: Valida que 'day' está no intervalo válido [0, D]
+        if (day < 0 || day > D) {
+            sendError(tag, "Parâmetro 'day' inválido: " + day + ". Esperado [0, " + D + "]");
             return;
         }
         
