@@ -60,7 +60,7 @@ public class Demultiplexer implements AutoCloseable {
                         Entry e = pending.get(frame.tag);
                         if (e != null) {
                             e.data = frame.payload;
-                            // Acorda a thread específ ica que espera por esta tag
+                            // Acorda a thread específica que espera por esta tag
                             e.cond.signal();
                         }
                     } finally {
@@ -82,7 +82,7 @@ public class Demultiplexer implements AutoCloseable {
     }
 
     /**
-     * Reserva um espaço na tabela de pendentes para uma tag específ ica.
+     * Reserva um espaço na tabela de pendentes para uma tag específica.
      * Este passo deve ocorrer antes do envio físico para evitar que o servidor responda
      * mais rápido do que a nossa capacidade de registar a tag.
      * @param tag O identificador da mensagem a registar.
@@ -109,8 +109,8 @@ public class Demultiplexer implements AutoCloseable {
 
     /**
      * Bloqueia a thread atual até que os dados com a tag correspondente cheguem.
-     * CORRIGIDO: Remove a entrada da tabela 'pending' ANTES de realizar a espera,
-     * evitando fuga de memória se uma exceção ocorrer durante a espera.
+     * A entrada é mantida na tabela 'pending' enquanto se aguarda, e removida apenas
+     * após a resposta chegar ou erro ocorrer, evitando fuga de memória.
      * @param tag A tag do pedido que enviamos.
      * @return Os bytes da resposta recebida.
      * @throws IOException Se houver erro de rede ou se a ligação cair durante a espera.
@@ -120,8 +120,7 @@ public class Demultiplexer implements AutoCloseable {
     public byte[] receive(int tag) throws IOException, InterruptedException {
         lock.lock();
         try {
-            // CORRIGIDO: Remove ANTES para garantir que será feita mesmo se houver exceção
-            Entry e = pending.remove(tag);
+            Entry e = pending.get(tag);
             if (e == null) throw new IllegalStateException(
                 "Tag não foi registada: " + tag
             );
@@ -134,6 +133,7 @@ public class Demultiplexer implements AutoCloseable {
             if (error != null) throw error;
             return e.data;
         } finally {
+            pending.remove(tag);
             lock.unlock();
         }
     }
