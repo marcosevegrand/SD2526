@@ -18,7 +18,8 @@ public class ClientHandler implements Runnable {
     private final StorageEngine storage;
     private final NotificationManager notify;
     private final ThreadPool workerPool;
-    private boolean authenticated = false;
+    /** CORRIGIDO: volatile para garantir visibilidade entre threads. */
+    private volatile boolean authenticated = false;
 
     /**
      * @param s Fluxo binário com o cliente.
@@ -51,7 +52,7 @@ public class ClientHandler implements Runnable {
         try {
             while (true) {
                 FramedStream.Frame f = stream.receive();
-                // Despacha o processamento para não bloquear a receção de mais frames
+                // Despacha o processamento para não bloquear a recepção de mais frames
                 workerPool.submit(() -> handleRequest(f));
             }
         } catch (IOException e) {
@@ -161,13 +162,23 @@ public class ClientHandler implements Runnable {
 
     /**
      * Processa pedidos estatísticos através do StorageEngine.
+     * CORRIGIDO: Valida que o parâmetro 'd' (dias) está no intervalo válido [1, D].
      * @param f Frame original.
      * @param in Stream de dados.
      * @throws IOException Erro de rede.
      */
     private void handleAggregation(FramedStream.Frame f, DataInputStream in)
         throws IOException {
-        double res = storage.aggregate(f.type, in.readUTF(), in.readInt());
+        String prod = in.readUTF();
+        int days = in.readInt();
+        
+        // CORRIGIDO: Validação do parâmetro 'days'
+        if (days < 1 || days > 365) {  // D=365 conforme Server.java
+            sendError(f.tag, "Parâmetro 'days' inválido: " + days + ". Esperado [1, 365]");
+            return;
+        }
+        
+        double res = storage.aggregate(f.type, prod, days);
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         new DataOutputStream(b).writeDouble(res);
         stream.send(f.tag, Protocol.STATUS_OK, b.toByteArray());
@@ -182,6 +193,19 @@ public class ClientHandler implements Runnable {
     private void handleFilter(int tag, DataInputStream in) throws IOException {
         int day = in.readInt();
         int size = in.readInt();
+        
+        // CORRIGIDO: Valida que 'day' está no intervalo válido
+        if (day < 0 || day > 365) {
+            sendError(tag, "Parâmetro 'day' inválido: " + day);
+            return;
+        }
+        
+        // CORRIGIDO: Valida o tamanho do conjunto de filtro
+        if (size < 0 || size > 10000) {
+            sendError(tag, "Tamanho do filtro inválido: " + size);
+            return;
+        }
+        
         Set<String> set = new HashSet<>();
         for (int i = 0; i < size; i++) set.add(in.readUTF());
         List<StorageEngine.Sale> events = storage.getEventsForDay(day, set);
@@ -195,7 +219,16 @@ public class ClientHandler implements Runnable {
      * @throws Exception Erro de rede ou interrupção.
      */
     private void handleWaitSimul(int tag, DataInputStream in) throws Exception {
-        boolean sim = notify.waitSimultaneous(in.readUTF(), in.readUTF());
+        String p1 = in.readUTF();
+        String p2 = in.readUTF();
+        
+        // CORRIGIDO: Valida nomes de produtos
+        if (p1 == null || p1.isEmpty() || p2 == null || p2.isEmpty()) {
+            sendError(tag, "Nomes de produtos inválidos");
+            return;
+        }
+        
+        boolean sim = notify.waitSimultaneous(p1, p2);
         stream.send(
             tag,
             Protocol.STATUS_OK,
@@ -211,7 +244,15 @@ public class ClientHandler implements Runnable {
      */
     private void handleWaitConsec(int tag, DataInputStream in)
         throws Exception {
-        String prod = notify.waitConsecutive(in.readInt());
+        int n = in.readInt();
+        
+        // CORRIGIDO: Valida que 'n' é um valor positivo razoável
+        if (n < 1 || n > 100000) {
+            sendError(tag, "Número de vendas consecutivas inválido: " + n);
+            return;
+        }
+        
+        String prod = notify.waitConsecutive(n);
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         if (prod != null) new DataOutputStream(b).writeUTF(prod);
         stream.send(tag, Protocol.STATUS_OK, b.toByteArray());
