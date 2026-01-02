@@ -14,17 +14,46 @@ public class UI {
     /**
      * Ponto de entrada da aplicação CLI.
      * Gere o ciclo de leitura de comandos e a manutenção do estado da sessão.
-     * @param args Argumentos de linha de comando (não utilizados).
+     * @param args Argumentos de linha de comando: [host] [port]
+     *             - host: endereço do servidor (default: localhost)
+     *             - port: porta do servidor (default: 12345)
      */
     public static void main(String[] args) {
+        String host = "localhost";
+        int port = 12345;
+
+        // Parse command-line arguments
+        if (args.length > 0) {
+            host = args[0];
+        }
+
+        if (args.length > 1) {
+            try {
+                port = Integer.parseInt(args[1]);
+                if (port < 1024 || port > 65535) {
+                    System.err.println("ERRO: Porto deve estar entre 1024 e 65535.");
+                    System.exit(1);
+                }
+            } catch (NumberFormatException e) {
+                System.err.println("ERRO: Porto inválido: " + args[1]);
+                System.exit(1);
+            }
+        }
+
+        if (args.length > 2) {
+            System.err.println("AVISO: Argumentos excedentes ignorados.");
+        }
+
         try (
             Scanner sc = new Scanner(System.in);
-            ClientLib lib = new ClientLib("localhost", 12345)
+            ClientLib lib = new ClientLib(host, port)
         ) {
             System.out.println("========================================");
             System.out.println("   CLIENTE DE SÉRIES TEMPORAIS (SD)     ");
             System.out.println("========================================");
+            System.out.println("Ligado a: " + host + ":" + port);
             System.out.println("Digite 'ajuda' para ver os comandos.");
+            System.out.println("========================================\n");
 
             boolean loggedIn = false;
 
@@ -110,7 +139,7 @@ public class UI {
         throws Exception {
         if (parts.length != 3) {
             System.out.println(
-                "Uso incorreto. Sintaxe: registar <username> <password>"
+                "Uso incorreto. Sintáxe: registar <username> <password>"
             );
             return;
         }
@@ -132,7 +161,7 @@ public class UI {
         throws Exception {
         if (parts.length != 3) {
             System.out.println(
-                "Uso incorreto. Sintaxe: entrar <username> <password>"
+                "Uso incorreto. Sintáxe: entrar <username> <password>"
             );
             return false;
         }
@@ -149,7 +178,7 @@ public class UI {
      * @param cmd Comando principal.
      * @param parts Argumentos.
      * @param lib Instância da biblioteca.
-     * @throws Exception Se a sintaxe for inválida ou ocorrer erro na ClientLib.
+     * @throws Exception Se a sintáxe for inválida ou ocorrer erro na ClientLib.
      */
     private static void processBusinessCommands(
         String cmd,
@@ -163,7 +192,7 @@ public class UI {
                 break;
             case "evento":
                 if (parts.length != 4) throw new IllegalArgumentException(
-                    "Sintaxe: evento <produto> <qtd> <preço>"
+                    "Sintáxe: evento <produto> <qtd> <preço>"
                 );
                 lib.addEvent(
                     parts[1],
@@ -192,7 +221,7 @@ public class UI {
                 break;
             case "filtrar":
                 if (parts.length < 3) throw new IllegalArgumentException(
-                    "Sintaxe: filtrar <dia> <p1> [p2...]"
+                    "Sintáxe: filtrar <dia> <p1> [p2...]"
                 );
                 int day = Integer.parseInt(parts[1]);
                 Set<String> filter = new HashSet<>(
@@ -209,7 +238,7 @@ public class UI {
                 break;
             case "simul":
                 if (parts.length != 3) throw new IllegalArgumentException(
-                    "Sintaxe: simul <produto1> <produto2>"
+                    "Sintáxe: simul <produto1> <produto2>"
                 );
                 System.out.println(
                     "A aguardar ocorrência simultânea... (Thread bloqueada)"
@@ -224,7 +253,7 @@ public class UI {
                 break;
             case "consec":
                 if (parts.length != 2) throw new IllegalArgumentException(
-                    "Sintaxe: consec <N>"
+                    "Sintáxe: consec <N>"
                 );
                 System.out.println(
                     "A aguardar sequência consecutiva... (Thread bloqueada)"
@@ -259,7 +288,7 @@ public class UI {
         String label
     ) throws Exception {
         if (parts.length != 3) throw new IllegalArgumentException(
-            "Sintaxe: " + parts[0] + " <produto> <dias>"
+            "Sintáxe: " + parts[0] + " <produto> <dias>"
         );
         double res = lib.getAggregation(
             type,
@@ -277,7 +306,7 @@ public class UI {
 
     /**
      * Exibe o manual de instruções detalhado para o utilizador.
-     * A intenção é servir de guia rápido para a sintaxe de cada comando.
+     * A intenção é servir de guia rápido para a sintáxe de cada comando.
      */
     private static void printHelp() {
         System.out.println("\n--- MANUAL DE COMANDOS ---");
