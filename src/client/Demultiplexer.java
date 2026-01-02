@@ -46,7 +46,7 @@ public class Demultiplexer implements AutoCloseable {
     }
 
     /**
-     * Inicia a thread de receção contínua.
+     * Inicia a thread de recepção contínua.
      * Esta thread corre em background e é a única autorizada a ler do socket,
      * distribuindo os dados pelas entradas pendentes conforme a tag recebida.
      */
@@ -60,7 +60,7 @@ public class Demultiplexer implements AutoCloseable {
                         Entry e = pending.get(frame.tag);
                         if (e != null) {
                             e.data = frame.payload;
-                            // Acorda a thread específica que espera por esta tag
+                            // Acorda a thread específ ica que espera por esta tag
                             e.cond.signal();
                         }
                     } finally {
@@ -82,7 +82,7 @@ public class Demultiplexer implements AutoCloseable {
     }
 
     /**
-     * Reserva um espaço na tabela de pendentes para uma tag específica.
+     * Reserva um espaço na tabela de pendentes para uma tag específ ica.
      * Este passo deve ocorrer antes do envio físico para evitar que o servidor responda
      * mais rápido do que a nossa capacidade de registar a tag.
      * @param tag O identificador da mensagem a registar.
@@ -109,6 +109,8 @@ public class Demultiplexer implements AutoCloseable {
 
     /**
      * Bloqueia a thread atual até que os dados com a tag correspondente cheguem.
+     * CORRIGIDO: Remove a entrada da tabela 'pending' ANTES de realizar a espera,
+     * evitando fuga de memória se uma exceção ocorrer durante a espera.
      * @param tag A tag do pedido que enviamos.
      * @return Os bytes da resposta recebida.
      * @throws IOException Se houver erro de rede ou se a ligação cair durante a espera.
@@ -118,18 +120,17 @@ public class Demultiplexer implements AutoCloseable {
     public byte[] receive(int tag) throws IOException, InterruptedException {
         lock.lock();
         try {
-            Entry e = pending.get(tag);
+            // CORRIGIDO: Remove ANTES para garantir que será feita mesmo se houver exceção
+            Entry e = pending.remove(tag);
             if (e == null) throw new IllegalStateException(
-                "Tag não foi registada."
+                "Tag não foi registada: " + tag
             );
 
-            // Ciclo de espera para lidar com despertares espúrios ou demora na rede
+            // Ciclo de espera para lidar com despertares espuríos ou demora na rede
             while (e.data == null && error == null) {
                 e.cond.await();
             }
 
-            // A remoção acontece aqui para libertar memória da tabela 'pending'
-            pending.remove(tag);
             if (error != null) throw error;
             return e.data;
         } finally {
