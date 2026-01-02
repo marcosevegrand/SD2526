@@ -155,32 +155,41 @@ gerados para validar automaticamente as funcionalidades implementadas. Todas as 
 e integradas após verificação de conformidade com o protocolo.
 
 \subsection{Geração da Interface de Utilizador}
-A classe \texttt{UI.java} foi gerada através de um prompt de IA que pedia explicitamente a criação de uma interface de
-linha de comando para o cliente, com um menu textual que incluísse operações de autenticação, registo de eventos,
-consulta de agregações estatísticas e gestão de notificações. O prompt indicava ainda que a interface deveria utilizar a
-biblioteca cliente já implementada, respeitando o protocolo e os códigos de erro definidos. O código produzido pela IA
-serviu como base inicial e foi ajustado manualmente para alinhar a experiência de utilizador com o comportamento efetivo
-do servidor.
+A classe \texttt{UI.java} foi gerada atravessando um prompt de IA com o seguinte conteúdo:
+
+\begin{quote}
+\textit{``Cria uma interface de linha de comando em Java para um cliente que se conecta a um servidor de séries temporais através da classe ClientLib. A interface deve apresentar um menu interativo com os seguintes comandos: registar username password (cria conta), entrar username password (faz login), evento produto qtd preço (regista uma venda), dia (consultando o dia actual), novodia (fecha o dia), filtrar dia p1 p2... (lista eventos de produtos num dia), qtd/vol/media/max produto dias (agregação de 4 tipos), simul produto1 produto2 (aguarda notificação), consec N (aguarda sequencia de N vendas seguidas). Mantém o estado de autenticação do utilizador, mostra indicadores de estado (autenticado ou visitante), e captura erros de sintaxe informando o utilizador da forma correta de usar cada comando.''}
+\end{quote}
+
+O código produzido implementou uma estrutura genérica com ciclo de leitura de comandos, métodos auxiliares para cada categoria de operação e um sistema de ajuda integrado. Foram realizadas validações manuais para garantir que cada comando respeitava o protocolo esperado e que as mensagens de erro fossem apropriadas.
 
 \subsection{Geração das Classes de Teste}
-As classes \texttt{FeatTest.java} e \texttt{StressTest.java} foram geradas com o apoio de IA, a partir de um prompt que
-descrevia os cenários de teste desejados: verificação de operações básicas (registo, login, inserção de eventos,
-consultas de agregação e notificações) e um teste de carga com dezenas de milhares de inserções concorrentes. A IA
-produziu esboços de testes JUnit que foram posteriormente revistos, simplificados e complementados com asserts
-específicos ao protocolo de mensagens do sistema.
 
-\subsection{Acesso Rápido à Documentação de API}
-A IA foi também utilizada como atalho para consulta de documentação de API da biblioteca padrão de Java. Num desses
-momentos, ao procurar uma forma simples de implementar uma cache LRU, a IA chamou a atenção para o método
-\texttt{removeEldestEntry()} da classe \texttt{LinkedHashMap}. Este detalhe, que poderia facilmente passar despercebido
-numa leitura manual da documentação, revelou-se essencial: permitiu configurar a estrutura de dados de modo a que a
-remoção do elemento menos recentemente utilizado fosse feita automaticamente, evitando a necessidade de implementar uma
-estrutura LRU de raiz e simplificando significativamente o código da camada de persistência em memória.
+\subsubsection{Testes Funcionais (FeatTest.java)}
+A classe \texttt{FeatTest.java} foi gerada com o seguinte prompt:
+
+\begin{quote}
+\textit{``Cria um teste JUnit que valida a funcionalidade de notificações simultâneas e consecutivas. O teste deve: 1) Lancar duas threads monitoras em paralelo, uma aguardando waitSimultaneous('Banana', 'Maçã') e outra aguardando waitConsecutive(3). 2) Lancar duas threads de ruído que adicionam alguns eventos variados (Banana, Maçã, Uva). 3) Lancar uma terceira thread que envia 3 eventos de Laranja seguidos. 4) Usar CountDownLatch para sincronizacao e permitir que as threads monitoras acordem quando a condição é atingida ou quando o dia termina. 5) Validar que a quantidade total de Laranjas registada corresponde ao esperado.''}
+\end{quote}
+
+O código gerado forneceu um esqueleto com threads executoras, sincronização baseada em latches e logs de progresso. O teste foi refinado manualmente para ajustar timings críticos, adicionar pequenas pausas de sincronização entre eventos para evitar race conditions, e melhorar a legibilidade dos logs de saída.
+
+\subsubsection{Teste de Carga (StressTest.java)}
+A classe \texttt{StressTest.java} foi gerada com o seguinte prompt:
+
+\begin{quote}
+\textit{``Cria um teste de stress que submete o servidor a dezenas de milhares de inserções concorrentes. O teste deve: 1) Criar 5 clientes autenticados, cada um com 5 threads de trabalho. 2) Cada thread insere 1000 eventos de um produto (SuperCPU) com quantidade 1 e preço 10.0, perfazendo 25.000 inserções no total. 3) Manter um contador local esperado (quantidade e volume) que será comparado com os valores devolvidos pelo servidor após a persistência. 4) Usar uma CountDownLatch para sincronizar o início de todas as threads, garantindo que começam aproximadamente ao mesmo tempo. 5) Apos a conclusão de todas as inserções, chamar NEW_DAY para persistir os dados. 6) Validar que a quantidade total e volume no servidor correspondem exatamente aos contadores locais, demonstrando que não houve perda de dados durante a concorrência.''}
+\end{quote}
+
+O código produzido incluiu um framework completo de execução com pools de threads, mecanismos de sincronização (CountDownLatch), atomicidade nos contadores (AtomicLong e DoubleAdder) e logs detalhados de progresso. O teste foi validado manualmente e executado com sucesso, confirmando a integridade do sistema sob carga massiva.
+
+\subsection{Acesso Rápido a Documentação de API}
+A IA foi também consultada como atalho para localização de API na biblioteca padrão de Java. Num desses momentos, ao investigar formas de implementar uma cache LRU de forma elegante, a IA chamou a atenção para o método \texttt{removeEldestEntry()} da classe \texttt{LinkedHashMap}. Este detalhe, que poderia facilmente passar despercebido numa leitura manual de documentação, revelou-se essencial: permitiu configurar a estrutura de dados de modo a que a remoção do elemento menos recentemente utilizado fosse feita automaticamente sobrescrevendo o método, evitando a necessidade de implementar uma estrutura LRU de raiz e simplificando significativamente o código da camada de persistência em memória.
 
 \section{Conclusão}
 O sistema desenvolvido cumpre integralmente os requisitos de eficiência e escalabilidade. A arquitetura modular permite
-que cada componente (armazenamento, autenticação, notificações) evolua independentemente. As técnicas empregadas---cache
-LRU, agregação lazy, demultiplexing no cliente, compressão de dados---são mecanismos consolidados na engenharia de sistemas
+que cada componente (armazenamento, autenticação, notificações) evolua independentemente. As técnicas empregadas (cache
+LRU, agregação lazy, demultiplexing no cliente, compressão de dados) são mecanismos consolidados na engenharia de sistemas
 distribuídos que garantem performance adequada mesmo perante volumes de dados massivos e elevada concorrência.
 
 \end{document}
