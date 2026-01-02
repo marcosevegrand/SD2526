@@ -18,7 +18,13 @@ public class NotificationManager {
     private String lastProductSold = null;
     private int consecutiveCount = 0;
     private int currentDay = 0;
-    private final Map<Integer, String> streaksReached = new HashMap<>();
+    /**
+     * CORRIGIDO: Map que rastreia (consecutive count -> Set de produtos)
+     * em vez de sobrescrever com um único produto.
+     * Permite que múltiplas threads aguardando diferentes contagens consecutivas
+     * encontrem os resultados corretos.
+     */
+    private final Map<Integer, Set<String>> streaksReached = new HashMap<>();
 
     /**
      * Regista uma venda e verifica se as metas de notificação foram atingidas.
@@ -39,7 +45,9 @@ public class NotificationManager {
                 consecutiveCount = 1;
             }
 
-            streaksReached.put(consecutiveCount, product);
+            // CORRIGIDO: Adiciona ao Set em vez de sobrescrever o valor
+            streaksReached.putIfAbsent(consecutiveCount, new HashSet<>());
+            streaksReached.get(consecutiveCount).add(product);
             // Acorda todas as threads que podem estar à espera deste produto ou quantidade
             change.signalAll();
         } finally {
@@ -93,6 +101,7 @@ public class NotificationManager {
 
     /**
      * Aguarda por uma sequência de N vendas seguidas de qualquer produto.
+     * CORRIGIDO: Retorna um dos produtos que atingiu a marca, ou null se o dia terminou.
      * @param n Quantidade consecutiva pretendida.
      * @return Nome do produto que atingiu a marca, ou null se o dia terminou.
      * @throws InterruptedException Se houver interrupção da thread.
@@ -105,7 +114,13 @@ public class NotificationManager {
             while (currentDay == startDay && !streaksReached.containsKey(n)) {
                 change.await();
             }
-            return (currentDay == startDay) ? streaksReached.get(n) : null;
+            if (currentDay == startDay) {
+                Set<String> products = streaksReached.get(n);
+                if (products != null && !products.isEmpty()) {
+                    return products.iterator().next();
+                }
+            }
+            return null;
         } finally {
             lock.unlock();
         }
