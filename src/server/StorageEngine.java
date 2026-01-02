@@ -39,6 +39,12 @@ public class StorageEngine {
 
     /** Cache para guardar agregações já calculadas, indexadas por dia e produto. */
     private final Map<Integer, Map<String, Stats>> aggCache = new HashMap<>();
+    
+    /**
+     * CORRIGIDO: Rastreia séries que estão a ser processadas atualmente na agregação.
+     * Impede que séries ativas sejam removidas do cache LRU antes do fim da agregação.
+     */
+    private final Set<Integer> activelyProcessing = new HashSet<>();
 
     /**
      * @param S Número máximo de séries (ficheiros) em memória RAM.
@@ -134,7 +140,7 @@ public class StorageEngine {
             currentDay++;
             saveState();
 
-            // Remoção proativa de dados que saíram da janela de interesse (D)
+            // Remoção proativa de dados que saírram da janela de interesse (D)
             int threshold = currentDay - D;
             aggCache.keySet().removeIf(day -> day < threshold);
             loadedSeries.keySet().removeIf(day -> day < threshold);
@@ -185,6 +191,7 @@ public class StorageEngine {
 
     /**
      * Recupera estatísticas da cache ou processa a série se for a primeira vez.
+     * CORRIGIDO: Marca o dia como sendo processado para evitar que seja removido da cache LRU.
      * @param day Dia.
      * @param prod Produto.
      * @return Estatísticas do par dia/produto.
@@ -197,21 +204,27 @@ public class StorageEngine {
         if (dayCache.containsKey(prod)) return dayCache.get(prod);
 
         // Se não houver cache, temos de percorrer toda a série do dia
-        Stats res = new Stats();
-        List<Sale> events = fetchDayEvents(day);
-        for (Sale s : events) {
-            if (s.prod.equals(prod)) {
-                res.count += s.qty;
-                res.vol += (s.qty * s.price);
-                res.max = Math.max(res.max, s.price);
+        activelyProcessing.add(day);  // Marca como em processamento
+        try {
+            Stats res = new Stats();
+            List<Sale> events = fetchDayEvents(day);
+            for (Sale s : events) {
+                if (s.prod.equals(prod)) {
+                    res.count += s.qty;
+                    res.vol += (s.qty * s.price);
+                    res.max = Math.max(res.max, s.price);
+                }
             }
+            dayCache.put(prod, res);
+            return res;
+        } finally {
+            activelyProcessing.remove(day);  // Remove marcação
         }
-        dayCache.put(prod, res);
-        return res;
     }
 
     /**
      * Gere o carregamento de dados do disco respeitando a cache LRU (S).
+     * CORRIGIDO: Não adiciona à cache se já existem S séries e a série não está sendo processada.
      * @param day Dia alvo.
      * @return Lista de vendas do ficheiro.
      * @throws IOException Erro de acesso ao ficheiro.
@@ -223,8 +236,11 @@ public class StorageEngine {
         if (!f.exists()) return new ArrayList<>();
 
         List<Sale> list = loadFile(f);
-        // Só adicionamos à cache se ainda houver espaço configurado por S
-        loadedSeries.put(day, list);
+        
+        // CORRIGIDO: Apenas adiciona à cache se há espaço ou se está sendo processada
+        if (loadedSeries.size() < S || activelyProcessing.contains(day)) {
+            loadedSeries.put(day, list);
+        }
         return list;
     }
 
