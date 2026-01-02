@@ -224,7 +224,7 @@ public class StorageEngine {
 
         List<Sale> list = loadFile(f);
         // Só adicionamos à cache se ainda houver espaço configurado por S
-        if (loadedSeries.size() < S) loadedSeries.put(day, list);
+        loadedSeries.put(day, list);
         return list;
     }
 

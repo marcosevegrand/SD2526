@@ -7,7 +7,7 @@ all:
 run-server:
 	java -cp bin server.Server
 
-run-client-cli:
+run-cli:
 	java -cp bin client.UI
 
 run-feat-test:

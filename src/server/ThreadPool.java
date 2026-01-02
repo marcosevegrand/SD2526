@@ -6,10 +6,6 @@ import java.util.List;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
-/**
- * Implementação de um Pool de Threads que utiliza Composição (Runnable) em vez de Herança.
- * Mantém o uso de ReentrantLock e Condition para gestão de concorrência.
- */
 public class ThreadPool {
 
     private final LinkedList<Runnable> taskQueue;
@@ -40,7 +36,7 @@ public class ThreadPool {
      */
     private void workerLoop() {
         while (true) {
-            Runnable task = null;
+            Runnable task;
 
             lock.lock();
             try {
@@ -57,9 +53,7 @@ public class ThreadPool {
                 // Condição de saída: pool fechado e sem tarefas pendentes
                 if (isShutdown && taskQueue.isEmpty()) return;
 
-                if (!taskQueue.isEmpty()) {
-                    task = taskQueue.poll();
-                }
+                task = taskQueue.poll();
             } finally {
                 lock.unlock();
             }

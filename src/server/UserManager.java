@@ -9,7 +9,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * Responsável pelo ciclo de vida das credenciais de utilizador.
  * A intenção é fornecer uma base segura e atómica para operações de registo e login,
  * garantindo que não existem colisões de nomes de utilizador em acessos concorrentes.
- * Inclui agora persistência em disco para manter os dados após reinicialização.
+ * Inclui persistência em disco para manter os dados após reinicialização.
  */
 public class UserManager {
 

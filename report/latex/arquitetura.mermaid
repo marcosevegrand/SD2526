@@ -1,0 +1,93 @@
+graph TD
+%% Definição de Estilos de Cores
+classDef clientNode fill:#D9E9FF,stroke:#336699,stroke-width:1px;
+classDef sharedNode fill:#E5D9FF,stroke:#663399,stroke-width:1px;
+classDef serverNode fill:#FFE9D9,stroke:#CC6600,stroke-width:1px;
+classDef coreNode fill:#FFF4D9,stroke:#D4A017,stroke-width:1px;
+classDef diskNode fill:#E0E0E0,stroke:#666666,stroke-width:1px;
+
+%% --- CLIENT SIDE ---
+subgraph ClientSide ["CLIENT SIDE"]
+    direction LR
+    subgraph ClientApps [" "]
+        direction TB
+        CLI["CLI (UI.java)"]:::clientNode
+        Tests["Tests (StressTest.java, FeatTest.java)"]:::clientNode
+    end
+
+    subgraph ClientCore ["Client Core"]
+        direction TB
+        CLib["ClientLib.java"]:::clientNode
+        Demux["Demultiplexer.java"]:::clientNode
+    end
+
+    CLI --- CLib
+    Tests --- CLib
+    CLib --- Demux
+end
+
+%% --- SHARED PROTOCOL ---
+subgraph Shared ["COMMON"]
+    direction TB
+    Proto["Protocol.java (Constants)"]:::sharedNode
+
+    subgraph NetLayer [" "]
+        direction LR
+        FSC["FramedStream.java (Client)"]:::sharedNode
+        FSS["FramedStream.java (Server)"]:::sharedNode
+        FSC --- |"Port 12345"| FSS
+    end
+end
+
+%% --- SERVER SIDE ---
+subgraph ServerSide ["SERVER SIDE"]
+    direction TB
+
+    subgraph SrvInfra ["Infrastructure"]
+        direction LR
+        SMain["Server Main"]:::serverNode
+        SSock["ServerSocket"]:::serverNode
+        Pool["Custom Thread Pool (ThreadPool.java)"]:::serverNode
+    end
+
+    CH["ClientHandler.java"]:::serverNode
+
+    subgraph CoreModules ["Core Modules"]
+        direction LR
+        UM["UserManager.java"]:::coreNode
+        SE["StorageEngine.java"]:::coreNode
+        NM["NotificationManager.java"]:::coreNode
+    end
+
+    subgraph Persistence ["Persistence Layer (Disk)"]
+        direction LR
+        P1[("(data/users.bin)")]:::diskNode
+        P2[("(data/state.bin)")]:::diskNode
+        P3[("(data/day_N.dat)")]:::diskNode
+    end
+
+    %% Fluxo Interno Servidor
+    SMain --- SSock
+    SMain --- Pool
+    SSock --- CH
+    CH --- Pool
+
+    Pool --- UM
+    Pool --- SE
+    Pool --- NM
+
+    UM --- P1
+    SE --- P2
+    SE --- P3
+end
+
+%% Conexões entre componentes de camadas diferentes (sem ligar os subgrafos)
+Demux --- FSC
+FSS --- CH
+
+%% Estilização dos Subgraphs
+style ClientSide fill:#F0F7FF,stroke:#336699,stroke-dasharray: 5 5
+style Shared fill:#F7F0FF,stroke:#663399,stroke-dasharray: 5 5
+style ServerSide fill:#FFF7F0,stroke:#CC6600,stroke-dasharray: 5 5
+style CoreModules fill:#FFFDF5,stroke:#D4A017
+style Persistence fill:#F5F5F5,stroke:#999999
