@@ -8,8 +8,8 @@ import java.util.concurrent.ExecutorService;
 
 /**
  * Gere a sessão de comunicação individual de um cliente ligado ao servidor.
- * A intenção é desacoplar a leitura física do socket da execução lógica,
- * permitindo que pedidos de um único cliente sejam processados em paralelo no pool.
+ * Desacopla a leitura física do socket da execução lógica, permitindo que
+ * pedidos de um único cliente sejam processados em paralelo no pool de threads.
  */
 public class ClientHandler implements Runnable {
 
@@ -21,7 +21,7 @@ public class ClientHandler implements Runnable {
     /** Parâmetros do servidor para validação de entrada */
     private final int S;
     private final int D;
-    /** CORRIGIDO: volatile para garantir visibilidade entre threads. */
+    /** Flag volátil que indica se a sessão foi autenticada. */
     private volatile boolean authenticated = false;
 
     /**
@@ -52,20 +52,19 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Ciclo principal de escuta de comandos do cliente.
-     * A intenção é consumir frames o mais rápido possível e delegar o trabalho ao pool,
-     * libertando o canal para novos comandos enquanto os anteriores são processados.
+     * Ciclo principal de escuta de comandos do cliente. Consome frames o mais
+     * rápido possível e delega o trabalho ao pool, libertando o canal para
+     * novos comandos enquanto os anteriores são processados em paralelo.
      */
     @Override
     public void run() {
         try {
             while (true) {
                 FramedStream.Frame f = stream.receive();
-                // Despacha o processamento para não bloquear a recepção de mais frames
                 workerPool.submit(() -> handleRequest(f));
             }
         } catch (IOException e) {
-            // A ligação foi fechada pelo cliente de forma normal ou forçada
+            // Ligação fechada pelo cliente
         }
     }
 
@@ -159,7 +158,7 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Comando administrativo para encerrar ciclo temporal.
+     * Comando administrativo para encerrar ciclo temporal e avançar para o próximo dia.
      * @param tag Tag do pedido.
      * @throws IOException Erro ao persistir ou rede.
      */
@@ -170,8 +169,9 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Processa pedidos estatísticos através do StorageEngine.
-     * CORRIGIDO: Valida que o parâmetro 'd' (dias) está no intervalo válido [1, D].
+     * Processa pedidos estatísticos através do StorageEngine. Valida que o
+     * parâmetro 'days' (dias) está no intervalo válido [1, D] conforme
+     * configurado no servidor.
      * @param f Frame original.
      * @param in Stream de dados.
      * @throws IOException Erro de rede.
@@ -181,7 +181,6 @@ public class ClientHandler implements Runnable {
         String prod = in.readUTF();
         int days = in.readInt();
         
-        // CORRIGIDO: Validação do parâmetro 'days' usando o parâmetro D do servidor
         if (days < 1 || days > D) {
             sendError(f.tag, "Parâmetro 'days' inválido: " + days + ". Esperado [1, " + D + "]");
             return;
@@ -194,7 +193,9 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Gere a pesquisa histórica com otimização de largura de banda.
+     * Gere a pesquisa histórica com otimização de largura de banda através
+     * de compressão por dicionário. Valida que o dia solicitado está
+     * dentro do intervalo de retenção e que o filtro não é excessivamente grande.
      * @param tag Tag do pedido.
      * @param in Stream de dados.
      * @throws IOException Erro de rede.
@@ -203,13 +204,11 @@ public class ClientHandler implements Runnable {
         int day = in.readInt();
         int size = in.readInt();
         
-        // CORRIGIDO: Valida que 'day' está no intervalo válido [0, D]
         if (day < 0 || day > D) {
             sendError(tag, "Parâmetro 'day' inválido: " + day + ". Esperado [0, " + D + "]");
             return;
         }
         
-        // CORRIGIDO: Valida o tamanho do conjunto de filtro
         if (size < 0 || size > 10000) {
             sendError(tag, "Tamanho do filtro inválido: " + size);
             return;
@@ -231,7 +230,6 @@ public class ClientHandler implements Runnable {
         String p1 = in.readUTF();
         String p2 = in.readUTF();
         
-        // CORRIGIDO: Valida nomes de produtos
         if (p1 == null || p1.isEmpty() || p2 == null || p2.isEmpty()) {
             sendError(tag, "Nomes de produtos inválidos");
             return;
@@ -246,7 +244,8 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Bloqueia o processamento até que a meta de vendas consecutivas seja atingida.
+     * Bloqueia o processamento até que a meta de vendas consecutivas do mesmo
+     * produto seja atingida. Valida que n está num intervalo razoável.
      * @param tag Tag do pedido.
      * @param in Stream de dados.
      * @throws Exception Erro de rede ou interrupção.
@@ -255,7 +254,6 @@ public class ClientHandler implements Runnable {
         throws Exception {
         int n = in.readInt();
         
-        // CORRIGIDO: Valida que 'n' é um valor positivo razoável
         if (n < 1 || n > 100000) {
             sendError(tag, "Número de vendas consecutivas inválido: " + n);
             return;
@@ -295,9 +293,9 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Implementa a compressão por dicionário para envio de eventos.
-     * A intenção é substituir strings repetitivas por identificadores numéricos,
-     * reduzindo significativamente o tamanho da resposta em listas grandes.
+     * Implementa compressão por dicionário para envio de eventos. Substitui
+     * strings repetitivas por identificadores numéricos, reduzindo significativamente
+     * o tamanho da resposta em listas grandes de eventos.
      * @param tag Tag da resposta.
      * @param events Lista de vendas processadas.
      * @throws IOException Erro na transmissão.
@@ -317,7 +315,7 @@ public class ClientHandler implements Runnable {
             }
         }
 
-        // Escreve o dicionário no cabeçalho da mensagem para que o cliente saiba decifrar os IDs
+        // Escreve o dicionário no cabeçalho para que o cliente saiba decifrar os IDs
         out.writeInt(dictList.size());
         for (String s : dictList) out.writeUTF(s);
 
