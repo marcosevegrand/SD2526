@@ -7,9 +7,9 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Motor de armazenamento especializado em séries temporais com gestão de memória.
- * A intenção é suportar grandes volumes de dados através de persistência em ficheiro,
- * cache LRU para séries frequentes e cache preguiçosa (lazy) para resultados agregados.
- * O motor preserva o contador do dia atual entre reinicializações.
+ * Suporta grandes volumes de dados através de persistência em ficheiro, cache LRU
+ * para séries frequentes e cache preguiçosa para resultados agregados. Preserva
+ * o contador do dia atual entre reinicializações.
  */
 public class StorageEngine {
 
@@ -21,8 +21,9 @@ public class StorageEngine {
     private final String statePath = "data/state.bin";
 
     /**
-     * Cache LRU (Least Recently Used) para manter apenas as S séries mais usadas em memória.
-     * Quando o limite S é atingido, a série mais antiga é removida do mapa para dar lugar a uma nova.
+     * Cache LRU (Least Recently Used) que mantém apenas as S séries mais
+     * recentemente acedidas em memória. Quando o limite S é atingido, a série
+     * menos recentemente utilizada é automaticamente removida para dar lugar a uma nova.
      */
     private final Map<Integer, List<Sale>> loadedSeries = new LinkedHashMap<>(
         16,
@@ -41,8 +42,8 @@ public class StorageEngine {
     private final Map<Integer, Map<String, Stats>> aggCache = new HashMap<>();
     
     /**
-     * CORRIGIDO: Rastreia séries que estão a ser processadas atualmente na agregação.
-     * Impede que séries ativas sejam removidas do cache LRU antes do fim da agregação.
+     * Rastreia séries que estão sendo processadas na agregação para evitar
+     * sua remoção prematura do cache LRU durante o cálculo de resultados.
      */
     private final Set<Integer> activelyProcessing = new HashSet<>();
 
@@ -58,7 +59,7 @@ public class StorageEngine {
 
     /**
      * Carrega o estado global do motor de armazenamento (dia atual) do disco.
-     * A intenção é evitar a sobreposição de ficheiros de dados após um restart.
+     * Evita sobreposição de ficheiros de dados após um restart do servidor.
      */
     private void loadState() {
         File f = new File(statePath);
@@ -103,7 +104,7 @@ public class StorageEngine {
     }
 
     /**
-     * Adiciona um evento ao buffer do dia atual (que está sempre em RAM).
+     * Adiciona um evento ao buffer do dia atual (que reside sempre em RAM).
      * @param p Produto.
      * @param q Quantidade.
      * @param pr Preço.
@@ -118,7 +119,8 @@ public class StorageEngine {
     }
 
     /**
-     * Escreve os eventos acumulados do dia em disco, limpa dados obsoletos, e atualiza o estado persistente.
+     * Escreve os eventos acumulados do dia em disco, limpa dados obsoletos,
+     * e atualiza o estado persistente. Incrementa o contador de dias.
      * @throws IOException Se falhar a escrita física.
      */
     public void persistDay() throws IOException {
@@ -140,7 +142,7 @@ public class StorageEngine {
             currentDay++;
             saveState();
 
-            // Remoção proativa de dados que saírram da janela de interesse (D)
+            // Remove proativamente dados fora da janela de interesse (D)
             int threshold = currentDay - D;
             aggCache.keySet().removeIf(day -> day < threshold);
             loadedSeries.keySet().removeIf(day -> day < threshold);
@@ -191,7 +193,7 @@ public class StorageEngine {
 
     /**
      * Recupera estatísticas da cache ou processa a série se for a primeira vez.
-     * CORRIGIDO: Marca o dia como sendo processado para evitar que seja removido da cache LRU.
+     * Marca o dia como sendo processado para evitar que seja removido da cache LRU.
      * @param day Dia.
      * @param prod Produto.
      * @return Estatísticas do par dia/produto.
@@ -203,8 +205,8 @@ public class StorageEngine {
 
         if (dayCache.containsKey(prod)) return dayCache.get(prod);
 
-        // Se não houver cache, temos de percorrer toda a série do dia
-        activelyProcessing.add(day);  // Marca como em processamento
+        // Se não houver cache, processamos toda a série do dia
+        activelyProcessing.add(day);
         try {
             Stats res = new Stats();
             List<Sale> events = fetchDayEvents(day);
@@ -218,13 +220,13 @@ public class StorageEngine {
             dayCache.put(prod, res);
             return res;
         } finally {
-            activelyProcessing.remove(day);  // Remove marcação
+            activelyProcessing.remove(day);
         }
     }
 
     /**
      * Gere o carregamento de dados do disco respeitando a cache LRU (S).
-     * CORRIGIDO: Não adiciona à cache se já existem S séries e a série não está sendo processada.
+     * Não adiciona à cache se já existem S séries carregadas e esta não está sendo processada.
      * @param day Dia alvo.
      * @return Lista de vendas do ficheiro.
      * @throws IOException Erro de acesso ao ficheiro.
@@ -237,7 +239,7 @@ public class StorageEngine {
 
         List<Sale> list = loadFile(f);
         
-        // CORRIGIDO: Apenas adiciona à cache se há espaço ou se está sendo processada
+        // Apenas adiciona à cache se há espaço ou se está sendo processada
         if (loadedSeries.size() < S || activelyProcessing.contains(day)) {
             loadedSeries.put(day, list);
         }
@@ -265,7 +267,7 @@ public class StorageEngine {
     }
 
     /**
-     * Filtra vendas de um dia específico.
+     * Filtra vendas de um dia específ ico.
      * @param day Dia.
      * @param filter Nomes permitidos.
      * @return Lista filtrada.
