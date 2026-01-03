@@ -14,6 +14,7 @@
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{caption}
+\usepackage{amsmath}
 \usepackage{hyperref}
 \usepackage{enumitem}
 \usepackage{graphicx}
@@ -46,150 +47,109 @@
 \begin{document}
 
 % --- CAPA ---
-\begin{titlepage}
-    \begin{center}
-        \vspace*{1cm}
-        \Large \textbf{Universidade do Minho}\\
-        \large Escola de Engenharia\\
-        Licenciatura em Engenharia Informática
-        \vfill
-        \huge \textbf{Sistemas Distribuídos}\\
-        \vspace{0.3cm}
-        \LARGE Projeto Prático: Sistema de Gestão de Séries Temporais
-        \vfill
-        \large \textbf{Grupo 9}\\
-        \vspace{0.8cm}
-        \begin{tabular}{ll}
-            \textbf{Número} & \textbf{Nome} \\
-            \midrule
-            A106902 & Francisco Martins \\
-            A107293 & Hugo Soares \\
-            A107372 & Nuno Rebelo \\
-            A106807 & Marco Sèvegrand \\
-        \end{tabular}
-        \vfill
-        \large Braga, \today
-    \end{center}
-\end{titlepage}
+    \begin{titlepage}
+        \begin{center}
+            \vspace*{1cm}
+            \Large \textbf{Universidade do Minho}\\
+            \large Escola de Engenharia\\
+            Licenciatura em Engenharia Informática
+            \vfill
+            \huge \textbf{Sistemas Distribuídos}\\
+            \vspace{0.3cm}
+            \LARGE Projeto Prático: Sistema de Gestão de Séries Temporais
+            \vfill
+            \large \textbf{Grupo 9}\\
+            \vspace{0.8cm}
+            \begin{tabular}{ll}
+                \textbf{Número} & \textbf{Nome} \\
+                \midrule
+                A106902 & Francisco Martins \\
+                A107293 & Hugo Soares \\
+                A107372 & Nuno Rebelo \\
+                A106807 & Marco Sèvegrand \\
+            \end{tabular}
+            \vfill
+            \large Braga, \today
+        \end{center}
+    \end{titlepage}
 
-\newpage
-\pagenumbering{arabic}
-\setstretch{1.3}
+    \newpage
+    \pagenumbering{arabic}
+    \setstretch{1.3}
 
-\section{Introdução}
-Este projeto implementa um motor de base de dados especializado no armazenamento e processamento eficiente de séries
-temporais de vendas. O sistema permite que múltiplos clientes registem eventos de vendas em tempo real, recuperem
-aggregações estatísticas (quantidade, volume, média, máximo) e recebam notificações de padrões específicos. O foco
-principal incidiu na conciliação de três desafios: suportar volumes massivos de dados através de persistência em disco,
-manter excelente performance através de cache em memória, e garantir a integridade dos dados num ambiente
-multi-utilizador altamente concorrente.
+    \section{Introdução}
+    Este projeto implementa um motor de base de dados para o armazenamento e processamento de séries temporais de vendas. O sistema permite que múltiplos clientes registem eventos em tempo real, consultem agregações estatísticas (quantidade, volume, média, máximo) e subscrevam notificações de padrões específicos. O desenho da solução focou-se na persistência de grandes quantidades de dados, na garantia de integridade em ambientes concorrentes e na redução da latência através de uma hierarquia de cache em memória.
 
-\section{Arquitetura do Sistema}
-O sistema foi desenhado em camadas: um servidor multi-threaded que recebe pedidos de clientes, delegando o processamento
-a um conjunto de threads de trabalho, enquanto a recepção de conexões nunca é interrompida. A persistência segue um
-modelo de separação entre dados voláteis (dia corrente em RAM) e histórico (ficheiros em disco). No cliente, uma biblioteca
-abstrai completamente a complexidade da rede, oferecendo uma interface síncrona enquanto gere assincronia de respostas
-em background através de um demultiplexer baseado em tags.
+    \section{Arquitetura do Sistema}
+    O sistema adota uma estrutura em camadas para isolar as responsabilidades de rede, lógica de negócio e armazenamento. O servidor utiliza um \textit{pool} de threads para processar pedidos de forma não bloqueante. No lado do cliente, a arquitetura foi desenhada para satisfazer o requisito de uma ligação TCP única, utilizando um \texttt{Demultiplexer} que gere múltiplas threads através de um protocolo de etiquetas (\textit{tags}). A comunicação é feita num formato binário, utilizando \texttt{DataInputStream} e \texttt{DataOutputStream} sobre um sistema de \textit{framing} que garante que as mensagens são transmitidas e lidas na íntegra.
 
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.9\textwidth]{arquitetura.png}
-  \caption{Diagrama da arquitetura do sistema e fluxo de mensagens entre componentes.}
-  \label{fig:arquitetura}
-\end{figure}
+    \begin{figure}[htbp]
+        \centering
+        \includegraphics[width=0.9\textwidth]{arquitetura.png}
+        \caption{Diagrama da arquitetura do sistema e fluxo de mensagens entre componentes.}
+        \label{fig:arquitetura}
+    \end{figure}
 
-\section{Implementação dos Requisitos}
+    \section{Implementação dos Requisitos}
 
-\subsection{Autenticação e Gestão de Sessão}
-O sistema exige autenticação para qualquer operação excepto registo e login. A autenticação é centralizada no
-\texttt{UserManager}, que utiliza um mapa protegido por mutex para manter o registo de utilizadores. Os dados de
-utilizadores são persistidos em ficheiro binário após cada novo registo, assegurando que as contas sobrevivem
-reinicializações do servidor.
+    \subsection{Autenticação e Gestão de Sessão}
+    O sistema impõe autenticação para todas as operações de negócio. A lógica reside no \texttt{UserManager}, que utiliza mecanismos de exclusão mútua (\textit{locks}) para proteger o mapa de utilizadores. Para garantir a persistência, os dados das contas são guardados em disco (\texttt{users.bin}), permitindo que as credenciais sobrevivam a reinicializações do serviço.
 
-\subsection{Registo de Eventos e Transição Temporal}
-Os eventos do dia corrente residem em buffer volátil, otimizado para inserção rápida. A operação \texttt{NEW\_DAY}
-simula a progressão do tempo: fecha o dia atual, persiste-o em disco, incrementa o contador de dias e notifica o sistema
-de notificações. Esta operação é atómica do ponto de vista dos clientes, garantindo consistência na transição de estado.
+    \subsection{Registo de Eventos e Transição Temporal}
+    Os eventos do dia corrente são acumulados em memória para maximizar o desempenho de escrita. A operação \texttt{NEW\_DAY} encerra o ciclo temporal: os dados são serializados para ficheiros \texttt{.dat} numerados e as threads bloqueadas em notificações são acordadas. Esta transição é coordenada de forma atómica para que nenhum evento seja perdido durante a mudança de estado.
 
-\subsection{Agregações Estatísticas e Cache Lazy}
-As operações de agregação seguem o modelo lazy: o cálculo é adiado até ao pedido do cliente. O sistema mantém uma cache
-de segundo nível que armazena resultados parciais por dia e por produto. Em vez de re-processar ficheiros históricos a
-cada consulta, o sistema combina resultados em cache, reduzindo drasticamente o I/O em pedidos repetidos. Isto permite
-que o servidor escale a consultas frequentes sem degradação de performance.
+    \subsection{Agregações Estatísticas e Cache Lazy}
+    As agregações são processadas de forma \textit{lazy}: o cálculo só ocorre quando solicitado. Implementámos uma cache de resultados (\texttt{aggCache}) que armazena estatísticas por par dia/produto. Em consultas subsequentes, o sistema reutiliza estes valores, evitando leituras redundantes do disco. Esta estratégia permite que o servidor responda instantaneamente a pedidos sobre períodos históricos longos.
 
-\subsection{Filtragem Eficiente de Dados}
-Para a listagem de eventos históricos, o protocolo utiliza compressão por dicionário: nomes de produtos repetidos são
-substituídos por identificadores inteiros no fluxo de dados transmitido. Esta técnica é especialmente eficaz em séries
-temporais com milhares de eventos para o mesmo produto, reduzindo significativamente o consumo de largura de banda sem
-perder informação.
+    \subsection{Filtragem Eficiente de Dados}
+    No requisito de listagem de eventos, implementámos compressão por dicionário. O servidor identifica produtos únicos no conjunto de resultados e envia um mapeamento de índices inteiros. Esta abordagem reduz o tamanho das mensagens transmitidas, uma vez que os nomes dos produtos não são repetidos na rede, otimizando o uso da largura de banda.
 
-\subsection{Notificações Bloqueantes com Timeout Implícito}
-As notificações requerem que a thread do cliente fique suspensa até que o padrão seja satisfeito. O sistema utiliza
-primitivas de sincronização (\texttt{Condition.await()}) para este fim. Uma decisão crítica de projeto foi o tratamento
-da transição de dias: se o dia termina enquanto uma thread aguarda uma notificação, a condição é invalidada e o cliente
-recebe uma resposta negativa, cumprindo o comportamento de tempo real exigido.
+    \subsection{Notificações Bloqueantes com Timeout Implícito}
+    As notificações utilizam variáveis de condição (\texttt{Condition.await()}). Se o critério de venda for atingido, a thread é sinalizada. Caso o dia termine antes da satisfação do padrão, a transição para um novo dia força o despertar das threads com um retorno nulo ou negativo, cumprindo a semântica de tempo real exigida.
 
-\subsection{Ligação TCP Única com Multiplexagem}
-O requisito de manter uma única ligação TCP por cliente, suportando múltiplos pedidos concorrentes, é satisfeito através
-de um protocolo de tags. O cliente aloca uma etiqueta única para cada pedido e aguarda a resposta correspondente. Um
-demultiplexer no cliente redireciona respostas da rede para a thread correta. Esta arquitetura elimina problemas de
-bloqueio em cabeça de linha, permitindo que pedidos rápidos não fiquem retidos atrás de agregações pesadas.
+    \subsection{Ligação TCP Única com Multiplexagem}
+    A concorrência no cliente é gerida pela classe \texttt{Demultiplexer}. Esta centraliza a leitura do socket numa thread dedicada, distribuindo as respostas pelas threads de aplicação com base na \textit{tag} de correlação. Isto impede o bloqueio de cabeça de linha, permitindo que uma consulta estatística pesada não impeça o envio simultâneo de novos eventos de venda.
 
-\subsection{Persistência com Gestão de Memória}
-O motor de armazenamento respeita dois parâmetros: $S$ (número máximo de séries em RAM) e $D$ (janela de dias
-históricos). Uma cache LRU implementada através de \texttt{LinkedHashMap} garante que apenas as $S$ séries mais
-consultadas ocupam memória. Séries excedentes são processadas diretamente do disco sob demanda. O sistema também limpa
-automaticamente dados que saem da janela de retenção de $D$ dias, mantendo o uso de disco sob controlo.
+    \subsection{Persistência com Gestão de Memória}
+    O motor respeita os limites $S$ (séries em RAM) e $D$ (janela histórica). Utilizamos uma cache LRU baseada em \texttt{LinkedHashMap} para gerir as séries carregadas. Se uma série necessária não estiver em memória e o limite $S$ for atingido, os dados são lidos do disco e integrados na cache, forçando a expulsão da entrada menos utilizada. Este mecanismo garante que o motor opera sempre dentro dos limites de memória definidos.
 
-\section{Validação e Teste}
-A validação funcional confirmou que o sistema gere corretamente notificações simultâneas e consecutivas, bem como a
-transição entre dias. O teste de carga submeteu o servidor a 25.000 inserções simultâneas de eventos concorrentes. A
-concordância perfeita entre os contadores locais dos testes e os valores devolvidos pelo servidor demonstra a fiabilidade
-do sistema sob carga e a ausência de condições de corrida.
+    \section{Validação e Teste}
+    A robustez do sistema foi validada através de dois cenários principais de teste. O \texttt{FeatTest} foca-se na correção funcional, testando a integridade das notificações simultâneas e consecutivas, bem como a transição entre ciclos diários e o cálculo básico de agregadores.
 
-\section{Utilização de Ferramentas de IA}
-Conforme especificado no enunciado, o uso de IA foi limitado a tarefas periféricas que não constituem o núcleo das
-competências de Sistemas Distribuídos avaliadas. A interface de utilizador (\texttt{UI.java}) foi gerada para acelerar
-a construção de um cliente interativo, assim como os testes (\texttt{FeatTest.java} e \texttt{StressTest.java}) foram
-gerados para validar automaticamente as funcionalidades implementadas. Todas as modificações foram validadas manualmente
-e integradas após verificação de conformidade com o protocolo.
+    O \texttt{StressTest} avalia o comportamento do sistema sob carga, submetendo o servidor a milhares de inserções simultâneas distribuídas por múltiplos clientes e threads de trabalho. Este teste confirmou a fiabilidade dos mecanismos de sincronização e a integridade dos dados, garantindo que os totais reportados pelo servidor coincidem com os eventos enviados pelos clientes, mesmo em cenários de elevada concorrência.
 
-\subsection{Geração da Interface de Utilizador}
-A classe \texttt{UI.java} foi gerada através de um prompt de IA com o seguinte conteúdo:
+    \section{Utilização de Ferramentas de IA}
+    Conforme o enunciado, o uso de IA foi direcionado para tarefas de suporte e produtividade. Gerámos a estrutura da interface de utilizador e os componentes de teste automático. Todo o código produzido foi revisto e integrado manualmente para garantir a conformidade com o protocolo definido e a estabilidade da aplicação.
 
-\begin{quote}
-\textit{Cria uma interface de linha de comando em Java para um cliente que se conecta a um servidor de séries temporais através da classe ClientLib. A interface deve apresentar um menu interativo com os seguintes comandos: registar username password (cria conta), entrar username password (faz login), evento produto qtd preço (regista uma venda), dia (consultando o dia actual), novodia (fecha o dia), filtrar dia p1 p2... (lista eventos de produtos num dia), qtd/vol/media/max produto dias (agregação de 4 tipos), simul produto1 produto2 (aguarda notificação), consec N (aguarda sequencia de N vendas seguidas). Mantém o estado de autenticação do utilizador, mostra indicadores de estado (autenticado ou visitante), e captura erros de sintaxe informando o utilizador da forma correta de usar cada comando.}
-\end{quote}
+    \subsection{Geração da Interface de Utilizador}
+    A interface de utilizador foi desenvolvida recorrendo ao seguinte prompt:
 
-O código produzido implementou uma estrutura genérica com ciclo de leitura de comandos, métodos auxiliares para cada categoria de operação e um sistema de ajuda integrado. Foram realizadas validações manuais para garantir que cada comando respeitava o protocolo esperado e que as mensagens de erro fossem apropriadas.
+    \begin{quote}
+        \textit{Utilizando a API definida no ficheiro ClientLib.java anexo, cria uma interface de linha de comando em Java. A CLI deve permitir ao utilizador registar-se, fazer login e executar todos os comandos de negócio, como registar vendas, consultar agregações, filtrar eventos e aguardar notificações. Garante que existe um indicador visual do estado da sessão e que são apresentadas mensagens de ajuda sobre a sintaxe de cada comando.}
+    \end{quote}
 
-\subsection{Geração das Classes de Teste}
+    Anexámos o ficheiro \texttt{ClientLib.java} ao prompt para assegurar que a interface invocava corretamente os métodos de negócio e respeitava a lógica de comunicação implementada.
 
-\subsubsection{Testes Funcionais (FeatTest.java)}
-A classe \texttt{FeatTest.java} foi gerada com o seguinte prompt:
+    \subsection{Geração das Classes de Teste}
 
-\begin{quote}
-\textit{Cria um teste JUnit que valida a funcionalidade de notificações simultâneas e consecutivas. O teste deve: 1) Lançar duas threads monitoras em paralelo, uma aguardando waitSimultaneous com dois produtos e outra aguardando waitConsecutive com um número de repetições. 2) Lançar duas threads de ruído que adicionam alguns eventos variados. 3) Lançar uma terceira thread que envia eventos de um produto seguidos. 4) Usar CountDownLatch para sincronização e permitir que as threads monitoras acordem quando a condição é atingida ou quando o dia termina. 5) Validar que a quantidade total de eventos registada corresponde ao esperado.}
-\end{quote}
+    \subsubsection{Testes Funcionais (FeatTest.java)}
+    Para a validação funcional, o prompt utilizado foi:
 
-O código gerado forneceu um esqueleto com threads executoras, sincronização baseada em latches e logs de progresso. O teste foi refinado manualmente para ajustar timings críticos, adicionar pequenas pausas de sincronização entre eventos para evitar race conditions, e melhorar a legibilidade dos logs de saída.
+    \begin{quote}
+        \textit{Cria um programa de teste em Java para validar o funcionamento das notificações. Deves lançar threads que fiquem a aguardar por vendas simultâneas e consecutivas, enquanto outras threads inserem eventos de venda. No final, verifica se o sistema liberta corretamente as threads quando o dia é encerrado e se as notificações refletem os eventos registados.}
+    \end{quote}
 
-\subsubsection{Teste de Carga (StressTest.java)}
-A classe \texttt{StressTest.java} foi gerada com o seguinte prompt:
+    \subsubsection{Teste de Carga (StressTest.java)}
+    Para o teste de carga, utilizou-se o seguinte prompt:
 
-\begin{quote}
-\textit{Cria um teste de stress que submete o servidor a dezenas de milhares de inserções concorrentes. O teste deve: 1) Criar 5 clientes autenticados, cada um com 5 threads de trabalho. 2) Cada thread insere 1000 eventos de um produto com quantidade 1 e preço 10.0, perfazendo 25.000 inserções no total. 3) Manter um contador local esperado (quantidade e volume) que será comparado com os valores devolvidos pelo servidor após a persistência. 4) Usar uma CountDownLatch para sincronizar o início de todas as threads, garantindo que começam aproximadamente ao mesmo tempo. 5) Após a conclusão de todas as inserções, chamar NEW\_DAY para persistir os dados. 6) Validar que a quantidade total e volume no servidor correspondem exatamente aos contadores locais, demonstrando que não houve perda de dados durante a concorrência.}
-\end{quote}
+    \begin{quote}
+        \textit{Gera um programa que submeta o servidor a um elevado número de pedidos concorrentes. Cria vários clientes, cada um com múltiplas threads, para registar milhares de vendas em simultâneo. No final, o programa deve comparar os totais enviados pelos clientes com os resultados devolvidos pelos agregadores do servidor para garantir que não houve perda de dados durante o processo.}
+    \end{quote}
 
-O código produzido incluiu um framework completo de execução com pools de threads, mecanismos de sincronização (CountDownLatch), atomicidade nos contadores (AtomicLong e DoubleAdder) e logs detalhados de progresso. O teste foi validado manualmente e executado com sucesso, confirmando a integridade do sistema sob carga massiva.
+    \subsection{Acesso Rápido a Documentação de API}
+    Utilizámos a IA para agilizar a consulta das APIs das bibliotecas padrão do Java. Foi através desta exploração que identificámos o método \texttt{removeEldestEntry()} da classe \texttt{LinkedHashMap}. Esta descoberta permitiu implementar a política de substituição LRU de forma nativa e eficiente, simplificando significativamente a lógica da camada de armazenamento.
 
-\subsection{Acesso Rápido a Documentação de API}
-A IA foi também consultada como atalho para localização de API na biblioteca padrão de Java. Num desses momentos, ao investigar formas de implementar uma cache LRU de forma elegante, a IA chamou a atenção para o método \texttt{removeEldestEntry()} da classe \texttt{LinkedHashMap}. Este detalhe, que poderia facilmente passar despercebido numa leitura manual de documentação, revelou-se essencial: permitiu configurar a estrutura de dados de modo a que a remoção do elemento menos recentemente utilizado fosse feita automaticamente sobrescrevendo o método, evitando a necessidade de implementar uma estrutura LRU de raiz e simplificando significativamente o código da camada de persistência em memória.
-
-\section{Conclusão}
-O sistema desenvolvido cumpre integralmente os requisitos de eficiência e escalabilidade. A arquitetura modular permite
-que cada componente (armazenamento, autenticação, notificações) evolua independentemente. As técnicas empregadas (cache
-LRU, agregação lazy, demultiplexing no cliente, compressão de dados) são mecanismos consolidados na engenharia de sistemas
-distribuídos que garantem performance adequada mesmo perante volumes de dados massivos e elevada concorrência.
+    \section{Conclusão}
+    O sistema desenvolvido responde aos requisitos técnicos e de desempenho. A arquitetura modular e as otimizações implementadas, como a multiplexagem e a gestão inteligente de memória, garantem um serviço resiliente e capaz de gerir fluxos intensos de dados e consultas complexas com eficácia.
 
 \end{document}

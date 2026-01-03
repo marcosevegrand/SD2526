@@ -2,19 +2,18 @@ package test;
 
 import client.ClientLib;
 import common.Protocol;
-import java.io.IOException;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class FeatTest {
 
     private static final String HOST = "localhost";
     private static final int PORT = 12345;
+    private static final Logger LOGGER = Logger.getLogger(FeatTest.class.getName());
 
     private static void log(String threadId, String message) {
         System.out.printf("[%s] %s%n", threadId, message);
@@ -41,20 +40,24 @@ public class FeatTest {
             executor.execute(() -> runNoiseWorker(3, noiseLatch, totalLatch));
 
             log(adminId, "Aguardando fim do ruído...");
-            noiseLatch.await(10, TimeUnit.SECONDS);
+            if (!noiseLatch.await(10, TimeUnit.SECONDS)) {
+                log(adminId, "AVISO: Timeout aguardando fim do ruído");
+            }
             Thread.sleep(500);
 
-            executor.execute(() -> runConsecutiveWorker(2, totalLatch));
+            executor.execute(() -> runConsecutiveWorker(totalLatch));
 
             // Aguarda que o worker da sequência termine
-            totalLatch.await(30, TimeUnit.SECONDS);
+            if (!totalLatch.await(30, TimeUnit.SECONDS)) {
+                log(adminId, "AVISO: Timeout aguardando conclusão de todos os workers");
+            }
 
             // --- ESTA É A ALTERAÇÃO ---
             // Pequena pausa para dar tempo ao Monitor de imprimir o "ACORDOU"
             // ANTES do Admin fechar o dia e começar as validações.
             log(
-                adminId,
-                "Sequência terminada. Pausa para sincronização de logs..."
+                    adminId,
+                    "Sequência terminada. Pausa para sincronização de logs..."
             );
             Thread.sleep(800);
 
@@ -63,10 +66,10 @@ public class FeatTest {
 
             performValidations(admin, adminId);
         } catch (Exception e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, "Erro durante teste: ", e);
         } finally {
             executor.shutdownNow();
-            System.out.println("=== TESTE DE STRESS CONCLUÍDO ===");
+            System.out.println("=== TESTE DE FUNCIONALIDADES CONCLUÍDO ===");
         }
     }
 
@@ -78,9 +81,9 @@ public class FeatTest {
                 log(tid, "A aguardar waitSimultaneous('Banana', 'Maçã')...");
                 boolean res = client.waitSimultaneous("Banana", "Maçã");
                 log(
-                    tid,
-                    "!!! ACORDOU !!! Resultado: " +
-                        (res ? "Meta atingida!" : "Dia terminou.")
+                        tid,
+                        "!!! ACORDOU !!! Resultado: " +
+                                (res ? "Meta atingida!" : "Dia terminou.")
                 );
             } catch (Exception e) {
                 log(tid, "ERRO: " + e.getMessage());
@@ -97,10 +100,10 @@ public class FeatTest {
                 String res = client.waitConsecutive(3);
                 // Print imediato ao acordar
                 log(
-                    tid,
-                    "!!! ACORDOU !!! Produto que disparou: [" +
-                        (res != null ? res : "Fim do Dia") +
-                        "]"
+                        tid,
+                        "!!! ACORDOU !!! Produto que disparou: [" +
+                                (res != null ? res : "Fim do Dia") +
+                                "]"
                 );
             } catch (Exception e) {
                 log(tid, "ERRO: " + e.getMessage());
@@ -109,9 +112,9 @@ public class FeatTest {
     }
 
     private static void runNoiseWorker(
-        int id,
-        CountDownLatch noiseLatch,
-        CountDownLatch totalLatch
+            int id,
+            CountDownLatch noiseLatch,
+            CountDownLatch totalLatch
     ) {
         String tid = "WORKER-NOISE-" + id;
         try (ClientLib client = new ClientLib(HOST, PORT)) {
@@ -132,10 +135,9 @@ public class FeatTest {
     }
 
     private static void runConsecutiveWorker(
-        int id,
-        CountDownLatch totalLatch
+            CountDownLatch totalLatch
     ) {
-        String tid = "WORKER-CONSEC-" + id;
+        String tid = "WORKER-CONSEC";
         try (ClientLib client = new ClientLib(HOST, PORT)) {
             client.login("admin", "pass123");
             log(tid, "Enviando 3 Laranjas em rajada...");
@@ -151,7 +153,7 @@ public class FeatTest {
     }
 
     private static void performValidations(ClientLib admin, String adminId)
-        throws Exception {
+            throws Exception {
         log(adminId, "--- Validações Finais ---");
         double qty = admin.getAggregation(Protocol.AGGR_QTY, "Laranja", 1);
         log(adminId, "Total Laranjas: " + qty);

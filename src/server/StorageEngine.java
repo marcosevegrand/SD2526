@@ -40,12 +40,6 @@ public class StorageEngine {
 
     /** Cache para guardar agregações já calculadas, indexadas por dia e produto. */
     private final Map<Integer, Map<String, Stats>> aggCache = new HashMap<>();
-    
-    /**
-     * Rastreia séries que estão sendo processadas na agregação para evitar
-     * sua remoção prematura do cache LRU durante o cálculo de resultados.
-     */
-    private final Set<Integer> activelyProcessing = new HashSet<>();
 
     /**
      * @param S Número máximo de séries (ficheiros) em memória RAM.
@@ -193,7 +187,6 @@ public class StorageEngine {
 
     /**
      * Recupera estatísticas da cache ou processa a série se for a primeira vez.
-     * Marca o dia como sendo processado para evitar que seja removido da cache LRU.
      * @param day Dia.
      * @param prod Produto.
      * @return Estatísticas do par dia/produto.
@@ -205,28 +198,21 @@ public class StorageEngine {
 
         if (dayCache.containsKey(prod)) return dayCache.get(prod);
 
-        // Se não houver cache, processamos toda a série do dia
-        activelyProcessing.add(day);
-        try {
-            Stats res = new Stats();
-            List<Sale> events = fetchDayEvents(day);
-            for (Sale s : events) {
-                if (s.prod.equals(prod)) {
-                    res.count += s.qty;
-                    res.vol += (s.qty * s.price);
-                    res.max = Math.max(res.max, s.price);
-                }
+        Stats res = new Stats();
+        List<Sale> events = fetchDayEvents(day);
+        for (Sale s : events) {
+            if (s.prod.equals(prod)) {
+                res.count += s.qty;
+                res.vol += (s.qty * s.price);
+                res.max = Math.max(res.max, s.price);
             }
-            dayCache.put(prod, res);
-            return res;
-        } finally {
-            activelyProcessing.remove(day);
         }
+        dayCache.put(prod, res);
+        return res;
     }
 
     /**
      * Gere o carregamento de dados do disco respeitando a cache LRU (S).
-     * Não adiciona à cache se já existem S séries carregadas e esta não está sendo processada.
      * @param day Dia alvo.
      * @return Lista de vendas do ficheiro.
      * @throws IOException Erro de acesso ao ficheiro.
@@ -238,11 +224,8 @@ public class StorageEngine {
         if (!f.exists()) return new ArrayList<>();
 
         List<Sale> list = loadFile(f);
-        
-        // Apenas adiciona à cache se há espaço ou se está sendo processada
-        if (loadedSeries.size() < S || activelyProcessing.contains(day)) {
-            loadedSeries.put(day, list);
-        }
+
+        loadedSeries.put(day, list);
         return list;
     }
 
