@@ -27,7 +27,7 @@ public class RobustTest {
     private static int testsPassed = 0;
     private static int testsFailed = 0;
 
-    public static void main(String[] args) {
+    public static void main(String[] _) {
         System.out.println("╔════════════════════════════════════════════════════════════╗");
         System.out.println("║       SUITE DE TESTES ROBUSTOS - SISTEMAS DISTRIBUÍDOS     ║");
         System.out.println("╚════════════════════════════════════════════════════════════╝\n");
@@ -56,7 +56,7 @@ public class RobustTest {
 
         } catch (Exception e) {
             System.err.println("ERRO FATAL NA EXECUÇÃO DOS TESTES: " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("Stack trace: " + e);
         }
 
         // Relatório Final
@@ -237,19 +237,23 @@ public class RobustTest {
                     result.set(waiterClient.waitSimultaneous("Banana", "Maçã"));
                     testDone.countDown();
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    System.err.println("Erro no waiter (4.1): " + e.getMessage());
                 }
             });
             waiter.start();
 
-            waiterReady.await(5, TimeUnit.SECONDS);
+            if (!waiterReady.await(5, TimeUnit.SECONDS)) {
+                System.err.println("AVISO: waiter não ficou pronto em 5s");
+            }
             Thread.sleep(200); // Garantir que o waiter está bloqueado
 
             // Enviar eventos que satisfazem a condição
             admin.addEvent("Banana", 1, 1.0);
             admin.addEvent("Maçã", 1, 1.0);
 
-            testDone.await(5, TimeUnit.SECONDS);
+            if (!testDone.await(5, TimeUnit.SECONDS)) {
+                System.err.println("AVISO: teste 4.1 não completou em 5s");
+            }
             assertTest("4.1 - Vendas Simultâneas - Sucesso", result.get());
 
             admin.newDay(); // Limpar para próximo teste
@@ -270,19 +274,23 @@ public class RobustTest {
                     result.set(waiterClient.waitSimultaneous("Laranja", "Pêra"));
                     testDone.countDown();
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    System.err.println("Erro no waiter (4.2): " + e.getMessage());
                 }
             });
             waiter.start();
 
-            waiterReady.await(5, TimeUnit.SECONDS);
+            if (!waiterReady.await(5, TimeUnit.SECONDS)) {
+                System.err.println("AVISO: waiter não ficou pronto em 5s");
+            }
             Thread.sleep(200);
 
             // Apenas um produto vendido, depois terminamos o dia
             admin.addEvent("Laranja", 1, 1.0);
             admin.newDay();
 
-            testDone.await(5, TimeUnit.SECONDS);
+            if (!testDone.await(5, TimeUnit.SECONDS)) {
+                System.err.println("AVISO: teste 4.2 não completou em 5s");
+            }
             assertTest("4.2 - Vendas Simultâneas - Dia termina sem sucesso", !result.get());
         }
 
@@ -301,12 +309,14 @@ public class RobustTest {
                     result.set(waiterClient.waitConsecutive(3));
                     testDone.countDown();
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    System.err.println("Erro no waiter (4.3): " + e.getMessage());
                 }
             });
             waiter.start();
 
-            waiterReady.await(5, TimeUnit.SECONDS);
+            if (!waiterReady.await(5, TimeUnit.SECONDS)) {
+                System.err.println("AVISO: waiter não ficou pronto em 5s");
+            }
             Thread.sleep(200);
 
             // Enviar 3 vendas consecutivas do mesmo produto
@@ -314,7 +324,9 @@ public class RobustTest {
             admin.addEvent("Kiwi", 1, 1.0);
             admin.addEvent("Kiwi", 1, 1.0);
 
-            testDone.await(5, TimeUnit.SECONDS);
+            if (!testDone.await(5, TimeUnit.SECONDS)) {
+                System.err.println("AVISO: teste 4.3 não completou em 5s");
+            }
             assertTest("4.3 - Vendas Consecutivas - Sucesso", "Kiwi".equals(result.get()));
 
             admin.newDay();
@@ -335,12 +347,14 @@ public class RobustTest {
                     result.set(waiterClient.waitConsecutive(5));
                     testDone.countDown();
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    System.err.println("Erro no waiter (4.4): " + e.getMessage());
                 }
             });
             waiter.start();
 
-            waiterReady.await(5, TimeUnit.SECONDS);
+            if (!waiterReady.await(5, TimeUnit.SECONDS)) {
+                System.err.println("AVISO: waiter não ficou pronto em 5s");
+            }
             Thread.sleep(200);
 
             // Sequência interrompida: A, A, B (nunca chega a 5)
@@ -349,7 +363,9 @@ public class RobustTest {
             admin.addEvent("ProdB", 1, 1.0);
             admin.newDay();
 
-            testDone.await(5, TimeUnit.SECONDS);
+            if (!testDone.await(5, TimeUnit.SECONDS)) {
+                System.err.println("AVISO: teste 4.4 não completou em 5s");
+            }
             assertTest("4.4 - Vendas Consecutivas - Sequência interrompida", result.get() == null);
         }
 
@@ -369,7 +385,9 @@ public class RobustTest {
                     bothReady.countDown();
                     simul.set(c.waitSimultaneous("X", "Y"));
                     bothDone.countDown();
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    System.err.println("Erro em waiter simultâneo (4.5)");
+                }
             }).start();
 
             // Waiter para consecutivas
@@ -379,10 +397,14 @@ public class RobustTest {
                     bothReady.countDown();
                     consec.set(c.waitConsecutive(2));
                     bothDone.countDown();
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    System.err.println("Erro em waiter consecutivo (4.5)");
+                }
             }).start();
 
-            bothReady.await(5, TimeUnit.SECONDS);
+            if (!bothReady.await(5, TimeUnit.SECONDS)) {
+                System.err.println("AVISO: ambos waiters não ficaram prontos em 5s");
+            }
             Thread.sleep(300);
 
             // Satisfazer ambas as condições
@@ -390,7 +412,9 @@ public class RobustTest {
             admin.addEvent("X", 1, 1.0);  // Isto satisfaz consecutivas (X, 2 vezes)
             admin.addEvent("Y", 1, 1.0);  // Isto satisfaz simultâneas (X e Y vendidos)
 
-            bothDone.await(5, TimeUnit.SECONDS);
+            if (!bothDone.await(5, TimeUnit.SECONDS)) {
+                System.err.println("AVISO: teste 4.5 não completou em 5s");
+            }
             assertTest("4.5 - Múltiplos waiters - Simultâneas", simul.get());
             assertTest("4.5 - Múltiplos waiters - Consecutivas", "X".equals(consec.get()));
 
@@ -443,8 +467,12 @@ public class RobustTest {
             assertTest("5.1 - Concorrência multi-thread única conexão",
                     completed && successCount.get() == expected);
 
-            System.out.printf("      [INFO] %d operações em %dms (%.0f ops/seg)%n",
-                    expected, duration, (expected * 1000.0) / duration);
+            if (completed) {
+                System.out.printf("      [INFO] %d operações em %dms (%.0f ops/seg)%n",
+                        expected, duration, (expected * 1000.0) / duration);
+            } else {
+                System.out.println("      [AVISO] Operações não completaram em 30s");
+            }
 
             executor.shutdown();
             client.newDay();
@@ -465,7 +493,9 @@ public class RobustTest {
                     slowClient.login(testUser, "pass");
                     slowStarted.set(true);
                     slowClient.waitSimultaneous("NuncaVendido1", "NuncaVendido2");
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    // Esperado que termine quando o dia muda
+                }
                 allDone.countDown();
             });
 
@@ -481,7 +511,9 @@ public class RobustTest {
                     }
                     fastCompletedTime.set(System.currentTimeMillis() - start);
                     fastCompleted.set(true);
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    System.err.println("Erro na thread rápida (5.2)");
+                }
                 allDone.countDown();
             });
 
@@ -496,7 +528,9 @@ public class RobustTest {
 
             // Terminar o dia para libertar a thread lenta
             client.newDay();
-            allDone.await(5, TimeUnit.SECONDS);
+            if (!allDone.await(5, TimeUnit.SECONDS)) {
+                System.out.println("      [AVISO] Threads não terminaram em 5s");
+            }
         }
     }
 
@@ -514,9 +548,6 @@ public class RobustTest {
         try (ClientLib admin = new ClientLib(HOST, PORT)) {
             admin.register(testUser, "pass");
             admin.login(testUser, "pass");
-
-            // Criar um cliente que vai enviar pedidos mas não consumir respostas de imediato
-            // (A nossa implementação do Demultiplexer consome automaticamente, mas podemos simular)
 
             // Enviar muitos pedidos rapidamente
             long start = System.currentTimeMillis();
@@ -546,7 +577,9 @@ public class RobustTest {
                     client.login(user, "pass");
                     allStarted.countDown();
 
-                    allStarted.await(); // Sincronizar início
+                    if (!allStarted.await(10, TimeUnit.SECONDS)) {
+                        System.err.println("      [AVISO] Clientes não sincronizados em 10s");
+                    }
 
                     for (int i = 0; i < 20; i++) {
                         client.addEvent("MultiClientProd", 1, 1.0);
@@ -559,7 +592,9 @@ public class RobustTest {
             }).start();
         }
 
-        allDone.await(30, TimeUnit.SECONDS);
+        if (!allDone.await(30, TimeUnit.SECONDS)) {
+            System.out.println("      [AVISO] Clientes não terminaram em 30s");
+        }
         assertTest("6.2 - Múltiplas conexões simultâneas", successClients.get() == numClients);
 
         // Teste 6.3: Recuperação após muitas operações
@@ -581,7 +616,7 @@ public class RobustTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // SECÇÃO 7: TESTES DE FRONTEIRA (EDGE CASES)
+    // SECÇÃO 7: TESTES DE CASOS DE FRONTEIRA (EDGE CASES)
     // ═══════════════════════════════════════════════════════════════════════════
 
     private static void runEdgeCaseTests() throws Exception {
