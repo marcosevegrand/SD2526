@@ -17,8 +17,8 @@ public class StressTest {
 
     // Configurações da carga
     private static final int NUM_CLIENTS = 5;
-    private static final int THREADS_PER_CLIENT = 5;
-    private static final int INSERTIONS_PER_THREAD = 1000;
+    private static final int THREADS_PER_CLIENT = 10;
+    private static final int INSERTIONS_PER_THREAD = 100000;
     private static final String PRODUCT_NAME = "SuperCPU";
 
     private static final AtomicLong expectedQty = new AtomicLong(0);
