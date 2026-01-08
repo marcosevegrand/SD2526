@@ -1,6 +1,7 @@
 package client;
 
 import common.FramedStream;
+import common.Protocol;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -21,35 +22,22 @@ public class Demultiplexer implements AutoCloseable {
 
     /**
      * Contentor para armazenar o estado de um pedido pendente.
-     * A intenção é manter o payload e a condição de sinalização para a thread em espera.
+     * A intenção é manter o payload, o tipo de resposta e a condição de sinalização.
      */
     private static class Entry {
-
         byte[] data;
+        int type;
         final Condition cond;
 
-        /**
-         * Cria uma entrada com uma condição associada ao lock do Demultiplexer.
-         * @param c A condição para bloqueio/sinalização.
-         */
         Entry(Condition c) {
             this.cond = c;
         }
     }
 
-    /**
-     * Inicializa o demultiplexador sobre um fluxo estruturado.
-     * @param stream A stream com frames sobre a qual se vai operar.
-     */
     public Demultiplexer(FramedStream stream) {
         this.stream = stream;
     }
 
-    /**
-     * Inicia a thread de recepção contínua.
-     * Esta thread corre em background e é a única autorizada a ler do socket,
-     * distribuindo os dados pelas entradas pendentes conforme a tag recebida.
-     */
     public void start() {
         new Thread(() -> {
             try {
@@ -60,7 +48,7 @@ public class Demultiplexer implements AutoCloseable {
                         Entry e = pending.get(frame.tag);
                         if (e != null) {
                             e.data = frame.payload;
-                            // Acorda a thread específica que espera por esta tag
+                            e.type = frame.type;
                             e.cond.signal();
                         }
                     } finally {
@@ -71,22 +59,14 @@ public class Demultiplexer implements AutoCloseable {
                 lock.lock();
                 try {
                     this.error = e;
-                    // Se a rede falhar, sinalizamos todas as threads para que saibam que a ligação morreu
                     for (Entry entry : pending.values()) entry.cond.signalAll();
                 } finally {
                     lock.unlock();
                 }
             }
-        })
-            .start();
+        }).start();
     }
 
-    /**
-     * Reserva um espaço na tabela de pendentes para uma tag específica.
-     * Este passo deve ocorrer antes do envio físico para evitar que o servidor responda
-     * mais rápido do que a nossa capacidade de registar a tag.
-     * @param tag O identificador da mensagem a registar.
-     */
     public void register(int tag) {
         lock.lock();
         try {
@@ -96,41 +76,34 @@ public class Demultiplexer implements AutoCloseable {
         }
     }
 
-    /**
-     * Realiza o envio do frame para a rede.
-     * @param tag Identificador.
-     * @param type Tipo de operação.
-     * @param data Payload.
-     * @throws IOException Em caso de falha de transmissão.
-     */
     public void send(int tag, int type, byte[] data) throws IOException {
         stream.send(tag, type, data);
     }
 
     /**
      * Bloqueia a thread atual até que os dados com a tag correspondente cheguem.
-     * A entrada é mantida na tabela 'pending' enquanto se aguarda, e removida apenas
-     * após a resposta chegar ou erro ocorrer, evitando fuga de memória.
-     * @param tag A tag do pedido que enviamos.
-     * @return Os bytes da resposta recebida.
-     * @throws IOException Se houver erro de rede ou se a ligação cair durante a espera.
-     * @throws InterruptedException Se a thread for interrompida externamente.
-     * @throws IllegalStateException Se a tag não tiver sido previamente registada.
+     * Lança exceção se o servidor responder com STATUS_ERR.
      */
     public byte[] receive(int tag) throws IOException, InterruptedException {
         lock.lock();
         try {
             Entry e = pending.get(tag);
             if (e == null) throw new IllegalStateException(
-                "Tag não foi registada: " + tag
+                    "Tag não foi registada: " + tag
             );
 
-            // Ciclo de espera para lidar com despertares espuríos ou demora na rede
             while (e.data == null && error == null) {
                 e.cond.await();
             }
 
             if (error != null) throw error;
+
+            // Verificar se o servidor indicou erro
+            if (e.type == Protocol.STATUS_ERR) {
+                String msg = e.data.length > 0 ? new String(e.data) : "Erro do servidor";
+                throw new IOException(msg);
+            }
+
             return e.data;
         } finally {
             pending.remove(tag);
@@ -138,10 +111,6 @@ public class Demultiplexer implements AutoCloseable {
         }
     }
 
-    /**
-     * Encerra a stream subjacente e liberta os recursos.
-     * @throws IOException Se houver erro no fecho da stream.
-     */
     @Override
     public void close() throws IOException {
         stream.close();

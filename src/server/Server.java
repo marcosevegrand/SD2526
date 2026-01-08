@@ -4,9 +4,6 @@ import common.FramedStream;
 import java.io.File;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import server.ThreadPool;
 
 /**
  * Orquestrador central do serviço de backend.
@@ -17,10 +14,11 @@ public class Server {
 
     /**
      * Método principal que configura as dependências e inicia o loop de aceitação TCP.
-     * @param args Argumentos de linha de comando: [port] [S] [D]
+     * @param args Argumentos de linha de comando: [port] [S] [D] [threads]
      *             - port: porta TCP onde o servidor escuta (default: 12345)
      *             - S: número máximo de séries em memória (default: 10)
      *             - D: janela de retenção de dias históricos (default: 365)
+     *             - threads: número de threads no pool de workers (default: 100)
      * @throws Exception Em caso de falhas críticas de hardware ou rede.
      */
     public static void main(String[] args) throws Exception {
@@ -28,6 +26,7 @@ public class Server {
         int port = 12345;
         int S = 10;
         int D = 365;
+        int threads = 100;
 
         if (args.length > 0) {
             try {
@@ -69,6 +68,19 @@ public class Server {
         }
 
         if (args.length > 3) {
+            try {
+                threads = Integer.parseInt(args[3]);
+                if (threads < 1) {
+                    System.err.println("ERRO: Threads deve ser >= 1.");
+                    System.exit(1);
+                }
+            } catch (NumberFormatException e) {
+                System.err.println("ERRO: Threads inválido: " + args[3]);
+                System.exit(1);
+            }
+        }
+
+        if (args.length > 4) {
             System.err.println("AVISO: Argumentos excedentes ignorados.");
         }
 
@@ -80,8 +92,7 @@ public class Server {
         UserManager um = new UserManager();
         StorageEngine se = new StorageEngine(S, D);
         NotificationManager nm = new NotificationManager();
-        // A pool agora de 100 threads permite lidar com um volume elevado de pedidos concorrentes
-        ThreadPool wp = new ThreadPool(100);
+        ThreadPool wp = new ThreadPool(threads);
 
         try (ServerSocket ss = new ServerSocket(port)) {
             System.out.println("========================================");
@@ -89,7 +100,7 @@ public class Server {
             System.out.println("Mecanismo de persistência iniciado com:");
             System.out.println("  S (séries em memória): " + S);
             System.out.println("  D (dias históricos): " + D);
-            System.out.println("  Pool de workers: 100 threads");
+            System.out.println("  Pool de workers: " + threads + " threads");
             System.out.println("========================================\n");
             System.out.println("À espera de conexões...");
 
@@ -97,7 +108,7 @@ public class Server {
                 Socket s = ss.accept();
                 // Cada socket tem a sua própria thread de escuta para garantir isolamento
                 new Thread(
-                    new ClientHandler(new FramedStream(s), um, se, nm, wp, S, D)
+                        new ClientHandler(new FramedStream(s), um, se, nm, wp, S, D)
                 ).start();
             }
         } finally {

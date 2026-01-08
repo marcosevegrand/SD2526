@@ -1,7 +1,8 @@
-# Default parameters - can be overridden from command line
+# Default parameters
 PORT ?= 12345
 S ?= 10
 D ?= 365
+THREADS ?= 100
 HOST ?= localhost
 CLIENT_PORT ?= 12345
 
@@ -19,13 +20,11 @@ all:
 
 # Run server with configurable parameters
 # Usage:
-#   make run-server                          # Uses defaults: port=12345, S=10, D=365
-#   make run-server PORT=8080                # Custom port
-#   make run-server PORT=8080 S=50           # Custom port and series
-#   make run-server PORT=8080 S=50 D=730     # All custom parameters
+#   make run-server                                    # Uses defaults
+#   make run-server PORT=8080 S=50 D=730 THREADS=200  # All custom
 run-server:
-	@echo "Starting server with parameters: PORT=$(PORT), S=$(S), D=$(D)"
-	java -cp bin server.Server $(PORT) $(S) $(D)
+	@echo "Starting server: PORT=$(PORT), S=$(S), D=$(D), THREADS=$(THREADS)"
+	java -cp bin server.Server $(PORT) $(S) $(D) $(THREADS)
 
 # Run client with configurable parameters
 # Usage:
@@ -45,6 +44,14 @@ run-feat-test:
 run-stress-test:
 	@echo "Running stress tests..."
 	java -cp bin test.StressTest
+
+run-robust-test:
+	@echo "Running robust tests..."
+	java -cp bin test.RobustTest
+
+run-cache-test:
+	@echo "Running cache tests (use S=3 D=10)..."
+	java -cp bin test.CacheTest
 
 # Generate Javadoc documentation
 docs:

@@ -4,7 +4,6 @@ import common.FramedStream;
 import common.Protocol;
 import java.io.*;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
 
 /**
  * Gere a sessão de comunicação individual de um cliente ligado ao servidor.
@@ -29,7 +28,7 @@ public class ClientHandler implements Runnable {
      * @param um Sistema de gestão de utilizadores.
      * @param se Motor de armazenamento e cache.
      * @param nm Sistema de notificações em tempo real.
-     * @param pool Pool global de threads para processamento.
+     * @param wp Pool global de threads para processamento.
      * @param S Número máximo de séries em memória.
      * @param D Janela de retenção de dias históricos.
      */
@@ -65,6 +64,8 @@ public class ClientHandler implements Runnable {
             }
         } catch (IOException e) {
             // Ligação fechada pelo cliente
+        } finally {
+            try { stream.close(); } catch (IOException ignored) {}
         }
     }
 
@@ -204,8 +205,8 @@ public class ClientHandler implements Runnable {
         int day = in.readInt();
         int size = in.readInt();
         
-        if (day < 0 || day > D) {
-            sendError(tag, "Parâmetro 'day' inválido: " + day + ". Esperado [0, " + D + "]");
+        if (day < 1 || day > D) {
+            sendError(tag, "Parâmetro 'day' inválido: " + day + ". Esperado [1, " + D + "]");
             return;
         }
         
@@ -230,7 +231,7 @@ public class ClientHandler implements Runnable {
         String p1 = in.readUTF();
         String p2 = in.readUTF();
         
-        if (p1 == null || p1.isEmpty() || p2 == null || p2.isEmpty()) {
+        if (p1.isEmpty() || p2.isEmpty()) {
             sendError(tag, "Nomes de produtos inválidos");
             return;
         }

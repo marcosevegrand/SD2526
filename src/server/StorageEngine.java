@@ -257,12 +257,13 @@ public class StorageEngine {
      * @throws IOException Erro de rede ou disco.
      */
     public List<Sale> getEventsForDay(int day, Set<String> filter)
-        throws IOException {
+            throws IOException {
         lock.lock();
         try {
-            List<Sale> all = (day == currentDay)
-                ? new ArrayList<>(currentEvents)
-                : fetchDayEvents(day);
+            if (day == currentDay) {
+                throw new IllegalArgumentException("Não é possível filtrar o dia corrente");
+            }
+            List<Sale> all = fetchDayEvents(day);
             List<Sale> filtered = new ArrayList<>();
             for (Sale s : all) if (filter.contains(s.prod)) filtered.add(s);
             return filtered;
