@@ -27,7 +27,7 @@ public class RobustTest {
     private static int testsPassed = 0;
     private static int testsFailed = 0;
 
-    public static void main(String[] _) {
+    public static void main(String[] args) {
         System.out.println("╔════════════════════════════════════════════════════════════╗");
         System.out.println("║       SUITE DE TESTES ROBUSTOS - SISTEMAS DISTRIBUÍDOS     ║");
         System.out.println("╚════════════════════════════════════════════════════════════╝\n");

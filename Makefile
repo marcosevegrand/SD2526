@@ -35,12 +35,7 @@ run-cli:
 	@echo "Connecting to server at: $(HOST):$(CLIENT_PORT)"
 	java -cp bin client.UI $(HOST) $(CLIENT_PORT)
 
-# Run feature tests (no parameters)
-run-feat-test:
-	@echo "Running feature tests..."
-	java -cp bin test.FeatTest
-
-# Run stress tests (no parameters)
+# Run stress tests
 run-stress-test:
 	@echo "Running stress tests..."
 	java -cp bin test.StressTest
