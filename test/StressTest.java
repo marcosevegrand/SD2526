@@ -10,7 +10,6 @@ import java.util.concurrent.atomic.DoubleAdder;
 
 /**
  * Suite de Teste de Stress de Alta Capacidade.
- *
  * Melhorias em relação à versão anterior:
  * 1. Redução de contenção no cliente (acumulação local vs global).
  * 2. Simulação de "Hotspots" (muita escrita no mesmo item) vs "High Cardinality" (muitos itens distintos).

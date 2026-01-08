@@ -108,7 +108,7 @@ public class Server {
                 Socket s = ss.accept();
                 // Cada socket tem a sua própria thread de escuta para garantir isolamento
                 new Thread(
-                        new ClientHandler(new FramedStream(s), um, se, nm, wp, S, D)
+                        new ClientHandler(new FramedStream(s), um, se, nm, wp, D)
                 ).start();
             }
         } finally {

@@ -28,7 +28,6 @@ public class ClientHandler implements Runnable {
      * @param se Motor de armazenamento e cache.
      * @param nm Sistema de notificações em tempo real.
      * @param wp Pool global de threads para processamento.
-     * @param S Número máximo de séries em memória.
      * @param D Janela de retenção de dias históricos.
      */
     public ClientHandler(
@@ -37,7 +36,6 @@ public class ClientHandler implements Runnable {
             StorageEngine se,
             NotificationManager nm,
             ThreadPool wp,
-            int S,
             int D
     ) {
         this.stream = s;
