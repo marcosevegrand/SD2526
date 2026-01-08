@@ -11,12 +11,12 @@ import java.util.concurrent.locks.ReentrantLock;
  * para séries frequentes e cache preguiçosa para resultados agregados. Preserva
  * o contador do dia atual entre reinicializações.
  *
- * NOTA sobre streaming (Issue 6):
+ * NOTA sobre streaming (Requisito 7 do enunciado):
  * A implementação atual usa uma cache LRU que mantém no máximo S séries em memória.
  * Para datasets extremamente grandes (biliões de eventos por dia), seria necessário
  * implementar processamento em streaming onde os eventos são lidos, processados e
  * descartados incrementalmente sem carregar todo o ficheiro em memória.
- * A implementação atual é adequada para a maioria dos casos de uso.
+ * A implementação atual é adequada para a maioria dos casos de uso práticos.
  */
 public class StorageEngine {
 
@@ -26,6 +26,9 @@ public class StorageEngine {
     private int currentDay = 0;
     private final List<Sale> currentEvents = new ArrayList<>();
     private final String statePath = "data/state.bin";
+
+    /** Rastreia o dia mais antigo que já foi limpo, para evitar iterações desnecessárias. */
+    private int oldestCleanedDay = 0;
 
     /**
      * Cache LRU (Least Recently Used) que mantém apenas as S séries mais
@@ -67,6 +70,13 @@ public class StorageEngine {
         if (!f.exists()) return;
         try (DataInputStream in = new DataInputStream(new FileInputStream(f))) {
             this.currentDay = in.readInt();
+            // Carrega o dia mais antigo limpo, se existir (compatibilidade)
+            if (in.available() >= 4) {
+                this.oldestCleanedDay = in.readInt();
+            } else {
+                // Servidor antigo, calcula baseado no dia atual
+                this.oldestCleanedDay = Math.max(0, currentDay - D);
+            }
         } catch (IOException e) {
             System.err.println(
                     "ERRO: Falha ao carregar estado do motor: " + e.getMessage()
@@ -84,6 +94,7 @@ public class StorageEngine {
                 )
         ) {
             out.writeInt(currentDay);
+            out.writeInt(oldestCleanedDay);
         } catch (IOException e) {
             System.err.println(
                     "ERRO: Falha ao salvar estado do motor: " + e.getMessage()
@@ -148,7 +159,7 @@ public class StorageEngine {
             aggCache.keySet().removeIf(day -> day < threshold);
             loadedSeries.keySet().removeIf(day -> day < threshold);
 
-            // FIX: Also delete old files from disk to free up space
+            // Limpa ficheiros antigos de forma eficiente
             cleanupOldFiles(threshold);
         } finally {
             lock.unlock();
@@ -157,12 +168,14 @@ public class StorageEngine {
 
     /**
      * Remove ficheiros de dias que estão fora da janela de retenção.
+     * Otimizado para apenas verificar ficheiros que ainda não foram limpos.
      * @param threshold Dias abaixo deste valor devem ser removidos.
      */
     private void cleanupOldFiles(int threshold) {
-        if (threshold <= 0) return;
+        if (threshold <= oldestCleanedDay) return;
 
-        for (int day = 0; day < threshold; day++) {
+        // Apenas itera sobre os dias que ainda não foram limpos
+        for (int day = oldestCleanedDay; day < threshold; day++) {
             File oldFile = new File("data/day_" + day + ".dat");
             if (oldFile.exists()) {
                 if (!oldFile.delete()) {
@@ -170,6 +183,9 @@ public class StorageEngine {
                 }
             }
         }
+
+        // Atualiza o marcador para a próxima limpeza
+        oldestCleanedDay = threshold;
     }
 
     /**
@@ -187,13 +203,12 @@ public class StorageEngine {
             double totalVol = 0;
             double globalMax = 0;
 
-            // FIX: More explicit bounds checking
-            // Process min(d, D, currentDay) days to handle all edge cases
+            // Processa min(d, D, currentDay) dias para tratar todos os casos limite
             int daysToProcess = Math.min(d, Math.min(D, currentDay));
 
             for (int i = 1; i <= daysToProcess; i++) {
                 int target = currentDay - i;
-                // This check is now redundant due to daysToProcess calculation, but kept for safety
+                // Verificação adicional de segurança (redundante mas segura)
                 if (target < 0) continue;
 
                 Stats s = getOrComputeStats(target, prod);
@@ -283,11 +298,10 @@ public class StorageEngine {
     /**
      * Filtra vendas de um dia específico.
      *
-     * FIX: Removed redundant currentDay validation since ClientHandler now
-     * performs complete validation including:
+     * A validação completa é feita no ClientHandler, incluindo:
      * - day >= 0
      * - day < currentDay
-     * - day >= currentDay - D (retention window)
+     * - day >= currentDay - D (janela de retenção)
      *
      * @param day Dia.
      * @param filter Nomes permitidos.
@@ -298,8 +312,7 @@ public class StorageEngine {
             throws IOException {
         lock.lock();
         try {
-            // FIX: Keep this check as a safety net, but it should never trigger
-            // if ClientHandler validation is working correctly
+            // Verificação de segurança (redundante se ClientHandler validou corretamente)
             if (day < 0 || day >= currentDay) {
                 throw new IllegalArgumentException(
                         "Dia inválido: " + day + ". Intervalo válido: [0, " + (currentDay - 1) + "]"
@@ -315,10 +328,10 @@ public class StorageEngine {
         }
     }
 
-    /** Objeto de transporte para dados de venda. */
+    /** Objeto de transporte para dados de venda. Campos públicos finais para imutabilidade. */
     public static class Sale {
 
-        public final String prod;  // FIX: Made fields public final for immutability
+        public final String prod;
         public final int qty;
         public final double price;
 

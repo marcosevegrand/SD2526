@@ -660,22 +660,24 @@ public class RobustTest {
             vol = client.getAggregation(Protocol.AGGR_VOL, "BigProd", 1);
             assertTest("7.5 - Valores grandes", Math.abs(vol - 999999990000.0) < 1);
 
-            // FIX: Get current day and use last persisted day for filter tests
-            int currentDay = client.getCurrentDay();
-            int lastPersistedDay = currentDay - 1;  // The day we just persisted (BigProd)
+            // NOTA: Capturamos o dia atual APÓS o teste 7.5 e ANTES dos testes de filtro.
+            // Os testes 7.6-7.9 podem chamar newDay(), mas usamos variáveis locais capturadas aqui.
+            int dayAfter7_5 = client.getCurrentDay();
+            // O dia onde BigProd foi persistido é dayAfter7_5 - 1
+            int bigProdDay = dayAfter7_5 - 1;
 
-            System.out.printf("      [INFO] Dia atual: %d, usando dia %d para testes de filtro%n",
-                    currentDay, lastPersistedDay);
+            System.out.printf("      [INFO] Após teste 7.5: dia atual = %d, BigProd está no dia %d%n",
+                    dayAfter7_5, bigProdDay);
 
             // Teste 7.6: Filtro com conjunto vazio
             Set<String> emptyFilter = new HashSet<>();
-            List<String> events = client.getEvents(lastPersistedDay, emptyFilter);
+            List<String> events = client.getEvents(bigProdDay, emptyFilter);
             assertTest("7.6 - Filtro vazio retorna lista vazia", events.isEmpty());
 
             // Teste 7.7: Filtro com produtos inexistentes
             Set<String> nonexistentFilter = new HashSet<>();
             nonexistentFilter.add("ProdutoQueNaoExiste");
-            events = client.getEvents(lastPersistedDay, nonexistentFilter);
+            events = client.getEvents(bigProdDay, nonexistentFilter);
             assertTest("7.7 - Filtro de produto inexistente", events.isEmpty());
 
             // Teste 7.8: Agregação de d=1 quando só existe 1 dia
@@ -691,11 +693,11 @@ public class RobustTest {
             qty = client.getAggregation(Protocol.AGGR_QTY, utf8Name, 1);
             assertTest("7.9 - Produto com caracteres UTF-8", qty == 1);
 
-            // Teste 7.10: Filtro do dia anterior com produto existente
-            // FIX: Use the day we know has data (lastPersistedDay has BigProd)
+            // Teste 7.10: Filtro do dia com BigProd
+            // NOTA: Usamos bigProdDay que foi capturado ANTES dos newDay() de 7.8 e 7.9,
+            // por isso aponta corretamente para o dia onde BigProd foi persistido.
             Set<String> bigProdFilter = new HashSet<>();
             bigProdFilter.add("BigProd");
-            int bigProdDay = currentDay - 1;  // Day where BigProd was persisted
             events = client.getEvents(bigProdDay, bigProdFilter);
             assertTest("7.10 - Filtro com produto existente retorna dados", events.size() == 1);
         }
