@@ -17,10 +17,9 @@ public class ClientHandler implements Runnable {
     private final StorageEngine storage;
     private final NotificationManager notify;
     private final ThreadPool workerPool;
-    /** Parâmetros do servidor para validação de entrada */
-    private final int S;
+    // Nota: Parâmetros S e D são validados no ClientHandler conforme necessário
     private final int D;
-    /** Flag volátil que indica se a sessão foi autenticada. */
+    // Flag volátil que indica se a sessão foi autenticada.
     private volatile boolean authenticated = false;
 
     /**
@@ -46,7 +45,6 @@ public class ClientHandler implements Runnable {
         this.storage = se;
         this.notify = nm;
         this.workerPool = wp;
-        this.S = S;
         this.D = D;
     }
 
@@ -54,6 +52,7 @@ public class ClientHandler implements Runnable {
      * Ciclo principal de escuta de comandos do cliente. Consome frames o mais
      * rápido possível e delega o trabalho ao pool, libertando o canal para
      * novos comandos enquanto os anteriores são processados em paralelo.
+     * Este loop é intencional: run() deve escutar continuamente até desconexão.
      */
     @Override
     public void run() {
@@ -63,7 +62,7 @@ public class ClientHandler implements Runnable {
                 workerPool.submit(() -> handleRequest(f));
             }
         } catch (IOException e) {
-            // Ligação fechada pelo cliente
+            // Ligacão fechada pelo cliente
         } finally {
             try { stream.close(); } catch (IOException ignored) {}
         }
