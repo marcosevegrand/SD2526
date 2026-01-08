@@ -625,15 +625,22 @@ public class RobustTest {
             vol = client.getAggregation(Protocol.AGGR_VOL, "BigProd", 1);
             assertTest("7.5 - Valores grandes", Math.abs(vol - 999999990000.0) < 1);
 
+            // FIX: Get current day and use last persisted day for filter tests
+            int currentDay = client.getCurrentDay();
+            int lastPersistedDay = currentDay - 1;  // The day we just persisted (BigProd)
+
+            System.out.printf("      [INFO] Dia atual: %d, usando dia %d para testes de filtro%n",
+                    currentDay, lastPersistedDay);
+
             // Teste 7.6: Filtro com conjunto vazio
             Set<String> emptyFilter = new HashSet<>();
-            List<String> events = client.getEvents(1, emptyFilter);
+            List<String> events = client.getEvents(lastPersistedDay, emptyFilter);
             assertTest("7.6 - Filtro vazio retorna lista vazia", events.isEmpty());
 
             // Teste 7.7: Filtro com produtos inexistentes
             Set<String> nonexistentFilter = new HashSet<>();
             nonexistentFilter.add("ProdutoQueNaoExiste");
-            events = client.getEvents(1, nonexistentFilter);
+            events = client.getEvents(lastPersistedDay, nonexistentFilter);
             assertTest("7.7 - Filtro de produto inexistente", events.isEmpty());
 
             // Teste 7.8: Agregação de d=1 quando só existe 1 dia
@@ -648,6 +655,14 @@ public class RobustTest {
             client.newDay();
             qty = client.getAggregation(Protocol.AGGR_QTY, utf8Name, 1);
             assertTest("7.9 - Produto com caracteres UTF-8", qty == 1);
+
+            // Teste 7.10: Filtro do dia anterior com produto existente
+            // FIX: Use the day we know has data (lastPersistedDay has BigProd)
+            Set<String> bigProdFilter = new HashSet<>();
+            bigProdFilter.add("BigProd");
+            int bigProdDay = currentDay - 1;  // Day where BigProd was persisted
+            events = client.getEvents(bigProdDay, bigProdFilter);
+            assertTest("7.10 - Filtro com produto existente retorna dados", events.size() == 1);
         }
     }
 

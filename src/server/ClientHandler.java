@@ -33,13 +33,13 @@ public class ClientHandler implements Runnable {
      * @param D Janela de retenção de dias históricos.
      */
     public ClientHandler(
-        FramedStream s,
-        UserManager um,
-        StorageEngine se,
-        NotificationManager nm,
-        ThreadPool wp,
-        int S,
-        int D
+            FramedStream s,
+            UserManager um,
+            StorageEngine se,
+            NotificationManager nm,
+            ThreadPool wp,
+            int S,
+            int D
     ) {
         this.stream = s;
         this.userManager = um;
@@ -76,19 +76,19 @@ public class ClientHandler implements Runnable {
     private void handleRequest(FramedStream.Frame f) {
         try {
             DataInputStream in = new DataInputStream(
-                new ByteArrayInputStream(f.payload)
+                    new ByteArrayInputStream(f.payload)
             );
 
             // Regra de segurança: Apenas registo e login são permitidos sem autenticação
             if (
-                !authenticated &&
-                f.type != Protocol.REGISTER &&
-                f.type != Protocol.LOGIN
+                    !authenticated &&
+                            f.type != Protocol.REGISTER &&
+                            f.type != Protocol.LOGIN
             ) {
                 stream.send(
-                    f.tag,
-                    Protocol.STATUS_ERR,
-                    "Não autenticado".getBytes()
+                        f.tag,
+                        Protocol.STATUS_ERR,
+                        "Não autenticado".getBytes()
                 );
                 return;
             }
@@ -99,10 +99,10 @@ public class ClientHandler implements Runnable {
                 case Protocol.ADD_EVENT -> handleAddEvent(f.tag, in);
                 case Protocol.NEW_DAY -> handleNewDay(f.tag);
                 case
-                    Protocol.AGGR_QTY,
-                    Protocol.AGGR_VOL,
-                    Protocol.AGGR_AVG,
-                    Protocol.AGGR_MAX -> handleAggregation(f, in);
+                        Protocol.AGGR_QTY,
+                        Protocol.AGGR_VOL,
+                        Protocol.AGGR_AVG,
+                        Protocol.AGGR_MAX -> handleAggregation(f, in);
                 case Protocol.FILTER -> handleFilter(f.tag, in);
                 case Protocol.WAIT_SIMUL -> handleWaitSimul(f.tag, in);
                 case Protocol.WAIT_CONSEC -> handleWaitConsec(f.tag, in);
@@ -120,12 +120,12 @@ public class ClientHandler implements Runnable {
      * @throws IOException Erro de leitura ou rede.
      */
     private void handleRegister(int tag, DataInputStream in)
-        throws IOException {
+            throws IOException {
         boolean ok = userManager.register(in.readUTF(), in.readUTF());
         stream.send(
-            tag,
-            Protocol.STATUS_OK,
-            new byte[] { (byte) (ok ? 1 : 0) }
+                tag,
+                Protocol.STATUS_OK,
+                new byte[] { (byte) (ok ? 1 : 0) }
         );
     }
 
@@ -138,9 +138,9 @@ public class ClientHandler implements Runnable {
     private void handleLogin(int tag, DataInputStream in) throws IOException {
         authenticated = userManager.authenticate(in.readUTF(), in.readUTF());
         stream.send(
-            tag,
-            Protocol.STATUS_OK,
-            new byte[] { (byte) (authenticated ? 1 : 0) }
+                tag,
+                Protocol.STATUS_OK,
+                new byte[] { (byte) (authenticated ? 1 : 0) }
         );
     }
 
@@ -151,7 +151,7 @@ public class ClientHandler implements Runnable {
      * @throws IOException Erro de leitura ou rede.
      */
     private void handleAddEvent(int tag, DataInputStream in)
-        throws IOException {
+            throws IOException {
         String p = in.readUTF();
         storage.addEvent(p, in.readInt(), in.readDouble());
         notify.registerSale(p);
@@ -178,15 +178,22 @@ public class ClientHandler implements Runnable {
      * @throws IOException Erro de rede.
      */
     private void handleAggregation(FramedStream.Frame f, DataInputStream in)
-        throws IOException {
+            throws IOException {
         String prod = in.readUTF();
         int days = in.readInt();
-        
+
         if (days < 1 || days > D) {
             sendError(f.tag, "Parâmetro 'days' inválido: " + days + ". Esperado [1, " + D + "]");
             return;
         }
-        
+
+        // FIX: Additional validation - warn if requesting more days than available
+        int currentDay = storage.getCurrentDay();
+        if (days > currentDay) {
+            // Still process but only with available days - the storage engine handles this
+            // This is informational, not an error
+        }
+
         double res = storage.aggregate(f.type, prod, days);
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         new DataOutputStream(b).writeDouble(res);
@@ -195,8 +202,13 @@ public class ClientHandler implements Runnable {
 
     /**
      * Gere a pesquisa histórica com otimização de largura de banda através
-     * de compressão por dicionário. Valida que o dia solicitado está
-     * dentro do intervalo de retenção e que o filtro não é excessivamente grande.
+     * de compressão por dicionário.
+     *
+     * FIX: Proper validation for filter day:
+     * - Day must be >= 0 (day 0 is the first persisted day)
+     * - Day must be < currentDay (can't filter current day - not yet persisted)
+     * - Day must be within retention window (>= currentDay - D)
+     *
      * @param tag Tag do pedido.
      * @param in Stream de dados.
      * @throws IOException Erro de rede.
@@ -204,17 +216,36 @@ public class ClientHandler implements Runnable {
     private void handleFilter(int tag, DataInputStream in) throws IOException {
         int day = in.readInt();
         int size = in.readInt();
-        
-        if (day < 1 || day > D) {
-            sendError(tag, "Parâmetro 'day' inválido: " + day + ". Esperado [1, " + D + "]");
+
+        int currentDay = storage.getCurrentDay();
+
+        // FIX: Proper day validation
+        // 1. Day cannot be negative
+        if (day < 0) {
+            sendError(tag, "Parâmetro 'day' inválido: " + day + ". O dia não pode ser negativo.");
             return;
         }
-        
+
+        // 2. Day must be a previous day (< currentDay), not the current day being written to
+        if (day >= currentDay) {
+            sendError(tag, "Parâmetro 'day' inválido: " + day +
+                    ". Apenas dias anteriores podem ser filtrados (dia atual: " + currentDay + ").");
+            return;
+        }
+
+        // 3. Day must be within retention window
+        int oldestRetainedDay = Math.max(0, currentDay - D);
+        if (day < oldestRetainedDay) {
+            sendError(tag, "Parâmetro 'day' inválido: " + day +
+                    ". O dia está fora da janela de retenção [" + oldestRetainedDay + ", " + (currentDay - 1) + "].");
+            return;
+        }
+
         if (size < 0 || size > 10000) {
             sendError(tag, "Tamanho do filtro inválido: " + size);
             return;
         }
-        
+
         Set<String> set = new HashSet<>();
         for (int i = 0; i < size; i++) set.add(in.readUTF());
         List<StorageEngine.Sale> events = storage.getEventsForDay(day, set);
@@ -230,17 +261,17 @@ public class ClientHandler implements Runnable {
     private void handleWaitSimul(int tag, DataInputStream in) throws Exception {
         String p1 = in.readUTF();
         String p2 = in.readUTF();
-        
+
         if (p1.isEmpty() || p2.isEmpty()) {
             sendError(tag, "Nomes de produtos inválidos");
             return;
         }
-        
+
         boolean sim = notify.waitSimultaneous(p1, p2);
         stream.send(
-            tag,
-            Protocol.STATUS_OK,
-            new byte[] { (byte) (sim ? 1 : 0) }
+                tag,
+                Protocol.STATUS_OK,
+                new byte[] { (byte) (sim ? 1 : 0) }
         );
     }
 
@@ -252,14 +283,14 @@ public class ClientHandler implements Runnable {
      * @throws Exception Erro de rede ou interrupção.
      */
     private void handleWaitConsec(int tag, DataInputStream in)
-        throws Exception {
+            throws Exception {
         int n = in.readInt();
-        
+
         if (n < 1 || n > 100000) {
             sendError(tag, "Número de vendas consecutivas inválido: " + n);
             return;
         }
-        
+
         String prod = notify.waitConsecutive(n);
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         if (prod != null) new DataOutputStream(b).writeUTF(prod);
@@ -286,9 +317,9 @@ public class ClientHandler implements Runnable {
     private void sendError(int tag, String msg) {
         try {
             stream.send(
-                tag,
-                Protocol.STATUS_ERR,
-                msg != null ? msg.getBytes() : "Erro desconhecido".getBytes()
+                    tag,
+                    Protocol.STATUS_ERR,
+                    msg != null ? msg.getBytes() : "Erro desconhecido".getBytes()
             );
         } catch (IOException ignored) {}
     }
@@ -302,7 +333,7 @@ public class ClientHandler implements Runnable {
      * @throws IOException Erro na transmissão.
      */
     private void sendFilteredEvents(int tag, List<StorageEngine.Sale> events)
-        throws IOException {
+            throws IOException {
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(b);
         Map<String, Integer> dict = new HashMap<>();

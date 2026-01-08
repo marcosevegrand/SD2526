@@ -11,6 +11,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class FramedStream implements AutoCloseable {
 
+    private final Socket socket;  // FIX: Keep reference to socket for proper closing
     private final DataInputStream in;
     private final DataOutputStream out;
     private final ReentrantLock writeLock = new ReentrantLock();
@@ -22,11 +23,12 @@ public class FramedStream implements AutoCloseable {
      * @throws IOException Se falhar a obtenção das streams do socket.
      */
     public FramedStream(Socket socket) throws IOException {
+        this.socket = socket;  // FIX: Store socket reference
         this.in = new DataInputStream(
-            new BufferedInputStream(socket.getInputStream())
+                new BufferedInputStream(socket.getInputStream())
         );
         this.out = new DataOutputStream(
-            new BufferedOutputStream(socket.getOutputStream())
+                new BufferedOutputStream(socket.getOutputStream())
         );
     }
 
@@ -73,13 +75,22 @@ public class FramedStream implements AutoCloseable {
     }
 
     /**
-     * Fecha as streams e os recursos de rede associados.
+     * Fecha as streams e o socket associado.
+     * FIX: Now explicitly closes the underlying socket to ensure proper cleanup.
      * @throws IOException Se houver erro no fecho.
      */
     @Override
     public void close() throws IOException {
-        in.close();
-        out.close();
+        try {
+            in.close();
+        } catch (IOException ignored) {}
+        try {
+            out.close();
+        } catch (IOException ignored) {}
+        // FIX: Explicitly close the socket
+        if (socket != null && !socket.isClosed()) {
+            socket.close();
+        }
     }
 
     /**
