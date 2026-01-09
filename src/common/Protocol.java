@@ -1,51 +1,65 @@
 package common;
 
 /**
- * Centraliza as constantes de sinalização do sistema.
- * A intenção é fornecer um vocabulário comum entre cliente e servidor, evitando "magic numbers"
- * e inconsistências durante a serialização.
+ * Constantes do protocolo de comunicação entre cliente e servidor.
+ *
+ * Centraliza todos os códigos de operação e estados de resposta utilizados
+ * na serialização de mensagens, evitando o uso de valores literais dispersos
+ * pelo código e garantindo consistência entre os dois lados da comunicação.
  */
 public class Protocol {
 
-    /** Identificador para criação de conta. */
+    // ==================== COMANDOS DE AUTENTICAÇÃO ====================
+
+    /** Código para operação de registo de novo utilizador. */
     public static final int REGISTER = 1;
 
-    /** Identificador para verificação de credenciais. */
+    /** Código para operação de autenticação (login). */
     public static final int LOGIN = 2;
 
-    /** Comando para adicionar nova venda. */
+    // ==================== COMANDOS DE DADOS ====================
+
+    /** Código para adicionar um novo evento de venda. */
     public static final int ADD_EVENT = 3;
 
-    /** Comando para fechar o dia corrente. */
+    /** Código para encerrar o dia atual e persistir os dados. */
     public static final int NEW_DAY = 4;
 
-    /** Agregação: Quantidade total. */
+    // ==================== COMANDOS DE AGREGAÇÃO ====================
+
+    /** Código para consulta de quantidade total vendida. */
     public static final int AGGR_QTY = 5;
 
-    /** Agregação: Volume financeiro. */
+    /** Código para consulta de volume financeiro total. */
     public static final int AGGR_VOL = 6;
 
-    /** Agregação: Média de preços. */
+    /** Código para consulta de preço médio ponderado. */
     public static final int AGGR_AVG = 7;
 
-    /** Agregação: Preço máximo. */
+    /** Código para consulta de preço máximo registado. */
     public static final int AGGR_MAX = 8;
 
-    /** Comando de filtragem de dados históricos. */
+    // ==================== COMANDOS DE CONSULTA ====================
+
+    /** Código para filtragem de eventos históricos por produto. */
     public static final int FILTER = 9;
 
-    /** Espera por venda simultânea de dois produtos. */
-    public static final int WAIT_SIMUL = 10;
-
-    /** Espera por sequência de vendas consecutivas. */
-    public static final int WAIT_CONSEC = 11;
-
-    /** Comando para consultar o dia atual do servidor. */
+    /** Código para consulta do dia atual do servidor. */
     public static final int GET_CURRENT_DAY = 12;
 
-    /** Resposta positiva do servidor. */
+    // ==================== COMANDOS DE NOTIFICAÇÃO ====================
+
+    /** Código para aguardar venda simultânea de dois produtos. */
+    public static final int WAIT_SIMUL = 10;
+
+    /** Código para aguardar sequência de vendas consecutivas. */
+    public static final int WAIT_CONSEC = 11;
+
+    // ==================== CÓDIGOS DE RESPOSTA ====================
+
+    /** Código de resposta indicando sucesso na operação. */
     public static final int STATUS_OK = 200;
 
-    /** Resposta de erro ou falha de autorização. */
+    /** Código de resposta indicando erro ou falha na operação. */
     public static final int STATUS_ERR = 500;
 }

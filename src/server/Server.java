@@ -6,28 +6,31 @@ import java.net.ServerSocket;
 import java.net.Socket;
 
 /**
- * Orquestrador central do serviço de backend.
- * A intenção desta classe é inicializar os motores de armazenamento, segurança e rede,
- * aceitando novas conexões de forma ininterrupta.
+ * Ponto de entrada do servidor de séries temporais.
+ *
+ * Inicializa todos os componentes do sistema (gestão de utilizadores,
+ * motor de armazenamento, notificações e pool de threads) e aceita
+ * conexões de clientes de forma contínua.
  */
 public class Server {
 
     /**
-     * Método principal que configura as dependências e inicia o loop de aceitação TCP.
+     * Método principal que configura e inicia o servidor.
+     *
      * @param args Argumentos de linha de comando: [port] [S] [D] [threads]
-     *             - port: porta TCP onde o servidor escuta (default: 12345)
-     *             - S: número máximo de séries em memória (default: 10)
-     *             - D: janela de retenção de dias históricos (default: 365)
-     *             - threads: número de threads no pool de workers (default: 100)
-     * @throws Exception Em caso de falhas críticas de hardware ou rede.
+     *             port: Porto TCP (default: 12345)
+     *             S: Número máximo de séries em memória (default: 10)
+     *             D: Janela de retenção em dias (default: 365)
+     *             threads: Tamanho do pool de workers (default: 100)
+     * @throws Exception Em caso de falha crítica de inicialização
      */
     public static void main(String[] args) throws Exception {
-        // Parse command-line arguments with defaults
         int port = 12345;
         int S = 10;
         int D = 365;
         int threads = 100;
 
+        // Processamento de argumentos com validação
         if (args.length > 0) {
             try {
                 port = Integer.parseInt(args[0]);
@@ -45,7 +48,7 @@ public class Server {
             try {
                 S = Integer.parseInt(args[1]);
                 if (S < 1) {
-                    System.err.println("ERRO: S (série em memória) deve ser >= 1.");
+                    System.err.println("ERRO: S (séries em memória) deve ser >= 1.");
                     System.exit(1);
                 }
             } catch (NumberFormatException e) {
@@ -84,11 +87,13 @@ public class Server {
             System.err.println("AVISO: Argumentos excedentes ignorados.");
         }
 
-        // Garante a existência da pasta de dados para evitar FileNotFoundException
+        // Criação do diretório de dados
         File dataDir = new File("data");
-        if (!dataDir.exists()) dataDir.mkdir();
+        if (!dataDir.exists()) {
+            dataDir.mkdir();
+        }
 
-        // A inicialização destas classes dispara o carregamento automático do estado persistente
+        // Inicialização dos componentes principais
         UserManager um = new UserManager();
         StorageEngine se = new StorageEngine(S, D);
         NotificationManager nm = new NotificationManager();
@@ -104,9 +109,9 @@ public class Server {
             System.out.println("========================================\n");
             System.out.println("À espera de conexões...");
 
+            // Loop de aceitação de conexões
             while (true) {
                 Socket s = ss.accept();
-                // Cada socket tem a sua própria thread de escuta para garantir isolamento
                 new Thread(
                         new ClientHandler(new FramedStream(s), um, se, nm, wp, D)
                 ).start();

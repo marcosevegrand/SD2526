@@ -6,6 +6,14 @@ import java.util.List;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
+/**
+ * Pool de threads personalizado para processamento de pedidos.
+ *
+ * Implementa um padrão produtor-consumidor onde tarefas são submetidas
+ * por threads de leitura e executadas por um conjunto fixo de workers.
+ * Esta abordagem evita a criação excessiva de threads e permite controlar
+ * a carga do sistema.
+ */
 public class ThreadPool {
 
     private final LinkedList<Runnable> taskQueue;
@@ -15,15 +23,15 @@ public class ThreadPool {
     private boolean isShutdown = false;
 
     /**
-     * Inicializa o pool criando threads que executam a lógica de processamento de tarefas.
-     * @param nThreads Número de threads no pool.
+     * Cria um pool com o número especificado de threads trabalhadoras.
+     *
+     * @param nThreads Número de threads no pool
      */
     public ThreadPool(int nThreads) {
         this.taskQueue = new LinkedList<>();
         this.workers = new ArrayList<>(nThreads);
 
         for (int i = 0; i < nThreads; i++) {
-            // Criamos a thread passando a lógica (Runnable) no construtor
             Thread worker = new Thread(this::workerLoop, "PoolWorker-" + i);
             workers.add(worker);
             worker.start();
@@ -31,8 +39,10 @@ public class ThreadPool {
     }
 
     /**
-     * Lógica principal de cada thread trabalhadora.
-     * Consome tarefas da fila enquanto o pool estiver ativo.
+     * Ciclo principal de cada thread trabalhadora.
+     * Aguarda por tarefas na fila e executa-as sequencialmente até que
+     * o pool seja encerrado. Exceções durante a execução são capturadas
+     * e registadas para não afetar outras tarefas.
      */
     private void workerLoop() {
         while (true) {
@@ -40,34 +50,31 @@ public class ThreadPool {
 
             lock.lock();
             try {
-                // Espera por tarefas ou pelo sinal de encerramento
                 while (taskQueue.isEmpty() && !isShutdown) {
                     try {
                         notEmpty.await();
                     } catch (InterruptedException e) {
-                        // Se a thread for interrompida e o pool estiver a fechar, termina a execução
-                        if (isShutdown) return;
+                        if (isShutdown) {
+                            return;
+                        }
                     }
                 }
 
-                // Condição de saída: pool fechado e sem tarefas pendentes
-                if (isShutdown && taskQueue.isEmpty()) return;
+                if (isShutdown && taskQueue.isEmpty()) {
+                    return;
+                }
 
                 task = taskQueue.poll();
             } finally {
                 lock.unlock();
             }
 
-            // Executa a tarefa fora do lock
             if (task != null) {
                 try {
                     task.run();
                 } catch (Exception e) {
                     System.err.println(
-                        "[" +
-                            Thread.currentThread().getName() +
-                            "] Erro na execução: " +
-                            e.getMessage()
+                            "[" + Thread.currentThread().getName() + "] Erro na execução: " + e.getMessage()
                     );
                 }
             }
@@ -75,12 +82,18 @@ public class ThreadPool {
     }
 
     /**
-     * Submete uma tarefa para execução no pool.
+     * Submete uma tarefa para execução assíncrona.
+     * A tarefa é adicionada à fila e uma thread trabalhadora disponível
+     * é notificada para a processar.
+     *
+     * @param task Tarefa a executar
      */
     public void submit(Runnable task) {
         lock.lock();
         try {
-            if (isShutdown) return;
+            if (isShutdown) {
+                return;
+            }
             taskQueue.add(task);
             notEmpty.signal();
         } finally {
@@ -89,7 +102,9 @@ public class ThreadPool {
     }
 
     /**
-     * Encerra o pool e interrompe as threads trabalhadoras.
+     * Encerra o pool de forma ordenada.
+     * Sinaliza todas as threads para terminarem e interrompe aquelas
+     * que estejam bloqueadas em espera.
      */
     public void shutdown() {
         lock.lock();

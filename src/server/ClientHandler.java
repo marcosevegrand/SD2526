@@ -6,9 +6,11 @@ import java.io.*;
 import java.util.*;
 
 /**
- * Gere a sessão de comunicação individual de um cliente ligado ao servidor.
- * Desacopla a leitura física do socket da execução lógica, permitindo que
- * pedidos de um único cliente sejam processados em paralelo no pool de threads.
+ * Gestor de sessão individual para cada cliente conectado.
+ *
+ * Processa pedidos de um cliente específico, delegando o trabalho pesado
+ * ao pool de threads para permitir processamento paralelo de múltiplos
+ * pedidos do mesmo cliente.
  */
 public class ClientHandler implements Runnable {
 
@@ -17,18 +19,20 @@ public class ClientHandler implements Runnable {
     private final StorageEngine storage;
     private final NotificationManager notify;
     private final ThreadPool workerPool;
-    // Nota: Parâmetros S e D são validados no ClientHandler conforme necessário
     private final int D;
-    // Flag volátil que indica se a sessão foi autenticada.
+
+    /** Indica se a sessão está autenticada. Volátil para visibilidade entre threads. */
     private volatile boolean authenticated = false;
 
     /**
-     * @param s Fluxo binário com o cliente.
-     * @param um Sistema de gestão de utilizadores.
-     * @param se Motor de armazenamento e cache.
-     * @param nm Sistema de notificações em tempo real.
-     * @param wp Pool global de threads para processamento.
-     * @param D Janela de retenção de dias históricos.
+     * Cria um novo handler para um cliente.
+     *
+     * @param s  Canal de comunicação com o cliente
+     * @param um Gestor de utilizadores
+     * @param se Motor de armazenamento
+     * @param nm Gestor de notificações
+     * @param wp Pool de threads para processamento
+     * @param D  Janela de retenção em dias
      */
     public ClientHandler(
             FramedStream s,
@@ -47,10 +51,10 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Ciclo principal de escuta de comandos do cliente. Consome frames o mais
-     * rápido possível e delega o trabalho ao pool, libertando o canal para
-     * novos comandos enquanto os anteriores são processados em paralelo.
-     * Este loop é intencional: run() deve escutar continuamente até desconexão.
+     * Ciclo principal de leitura de pedidos.
+     * Lê frames continuamente e delega o processamento ao pool de threads,
+     * permitindo que múltiplos pedidos do mesmo cliente sejam processados
+     * em paralelo.
      */
     @Override
     public void run() {
@@ -60,15 +64,18 @@ public class ClientHandler implements Runnable {
                 workerPool.submit(() -> handleRequest(f));
             }
         } catch (IOException e) {
-            // Ligacão fechada pelo cliente
+            // Conexão fechada pelo cliente
         } finally {
-            try { stream.close(); } catch (IOException ignored) {}
+            try {
+                stream.close();
+            } catch (IOException ignored) {}
         }
     }
 
     /**
-     * Despacha o frame para a função lógica correta e valida a autenticação.
-     * @param f O frame recebido da rede.
+     * Despacha um pedido para o handler apropriado.
+     *
+     * @param f Frame recebido
      */
     private void handleRequest(FramedStream.Frame f) {
         try {
@@ -76,12 +83,10 @@ public class ClientHandler implements Runnable {
                     new ByteArrayInputStream(f.payload)
             );
 
-            // Regra de segurança: Apenas registo e login são permitidos sem autenticação
-            if (
-                    !authenticated &&
-                            f.type != Protocol.REGISTER &&
-                            f.type != Protocol.LOGIN
-            ) {
+            // Verificação de autenticação para operações de negócio
+            if (!authenticated &&
+                    f.type != Protocol.REGISTER &&
+                    f.type != Protocol.LOGIN) {
                 stream.send(
                         f.tag,
                         Protocol.STATUS_ERR,
@@ -95,11 +100,10 @@ public class ClientHandler implements Runnable {
                 case Protocol.LOGIN -> handleLogin(f.tag, in);
                 case Protocol.ADD_EVENT -> handleAddEvent(f.tag, in);
                 case Protocol.NEW_DAY -> handleNewDay(f.tag);
-                case
-                        Protocol.AGGR_QTY,
-                        Protocol.AGGR_VOL,
-                        Protocol.AGGR_AVG,
-                        Protocol.AGGR_MAX -> handleAggregation(f, in);
+                case Protocol.AGGR_QTY,
+                     Protocol.AGGR_VOL,
+                     Protocol.AGGR_AVG,
+                     Protocol.AGGR_MAX -> handleAggregation(f, in);
                 case Protocol.FILTER -> handleFilter(f.tag, in);
                 case Protocol.WAIT_SIMUL -> handleWaitSimul(f.tag, in);
                 case Protocol.WAIT_CONSEC -> handleWaitConsec(f.tag, in);
@@ -111,10 +115,11 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Regista um novo utilizador no sistema.
-     * @param tag Tag do pedido.
-     * @param in Stream de dados serializados.
-     * @throws IOException Erro de leitura ou rede.
+     * Processa pedido de registo de utilizador.
+     *
+     * @param tag Tag do pedido
+     * @param in  Stream de dados
+     * @throws IOException Se ocorrer erro de comunicação
      */
     private void handleRegister(int tag, DataInputStream in)
             throws IOException {
@@ -127,10 +132,11 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Verifica credenciais e autoriza a sessão atual.
-     * @param tag Tag do pedido.
-     * @param in Stream de dados.
-     * @throws IOException Erro de leitura ou rede.
+     * Processa pedido de autenticação.
+     *
+     * @param tag Tag do pedido
+     * @param in  Stream de dados
+     * @throws IOException Se ocorrer erro de comunicação
      */
     private void handleLogin(int tag, DataInputStream in) throws IOException {
         authenticated = userManager.authenticate(in.readUTF(), in.readUTF());
@@ -142,10 +148,11 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Regista venda e despoleta notificações em tempo real.
-     * @param tag Tag do pedido.
-     * @param in Stream de dados.
-     * @throws IOException Erro de leitura ou rede.
+     * Processa registo de evento de venda.
+     *
+     * @param tag Tag do pedido
+     * @param in  Stream de dados
+     * @throws IOException Se ocorrer erro de comunicação
      */
     private void handleAddEvent(int tag, DataInputStream in)
             throws IOException {
@@ -156,9 +163,10 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Comando administrativo para encerrar ciclo temporal e avançar para o próximo dia.
-     * @param tag Tag do pedido.
-     * @throws IOException Erro ao persistir ou rede.
+     * Processa comando de encerramento do dia.
+     *
+     * @param tag Tag do pedido
+     * @throws IOException Se ocorrer erro de comunicação ou persistência
      */
     private void handleNewDay(int tag) throws IOException {
         storage.persistDay();
@@ -167,12 +175,12 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Processa pedidos estatísticos através do StorageEngine. Valida que o
-     * parâmetro 'days' (dias) está no intervalo válido [1, D] conforme
-     * configurado no servidor.
-     * @param f Frame original.
-     * @param in Stream de dados.
-     * @throws IOException Erro de rede.
+     * Processa pedido de agregação estatística.
+     * Valida que o parâmetro 'days' está no intervalo [1, D].
+     *
+     * @param f  Frame original
+     * @param in Stream de dados
+     * @throws IOException Se ocorrer erro de comunicação
      */
     private void handleAggregation(FramedStream.Frame f, DataInputStream in)
             throws IOException {
@@ -184,13 +192,6 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        // FIX: Additional validation - warn if requesting more days than available
-        int currentDay = storage.getCurrentDay();
-        if (days > currentDay) {
-            // Still process but only with available days - the storage engine handles this
-            // This is informational, not an error
-        }
-
         double res = storage.aggregate(f.type, prod, days);
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         new DataOutputStream(b).writeDouble(res);
@@ -198,17 +199,15 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Gere a pesquisa histórica com otimização de largura de banda através
-     * de compressão por dicionário.
+     * Processa pedido de filtragem de eventos históricos.
+     * Valida que o dia solicitado está dentro do intervalo válido:
+     *   - Não pode ser negativo
+     *   - Deve ser anterior ao dia atual (não é possível filtrar o dia em curso)
+     *   - Deve estar dentro da janela de retenção D
      *
-     * FIX: Proper validation for filter day:
-     * - Day must be >= 0 (day 0 is the first persisted day)
-     * - Day must be < currentDay (can't filter current day - not yet persisted)
-     * - Day must be within retention window (>= currentDay - D)
-     *
-     * @param tag Tag do pedido.
-     * @param in Stream de dados.
-     * @throws IOException Erro de rede.
+     * @param tag Tag do pedido
+     * @param in  Stream de dados
+     * @throws IOException Se ocorrer erro de comunicação
      */
     private void handleFilter(int tag, DataInputStream in) throws IOException {
         int day = in.readInt();
@@ -216,21 +215,17 @@ public class ClientHandler implements Runnable {
 
         int currentDay = storage.getCurrentDay();
 
-        // FIX: Proper day validation
-        // 1. Day cannot be negative
         if (day < 0) {
             sendError(tag, "Parâmetro 'day' inválido: " + day + ". O dia não pode ser negativo.");
             return;
         }
 
-        // 2. Day must be a previous day (< currentDay), not the current day being written to
         if (day >= currentDay) {
             sendError(tag, "Parâmetro 'day' inválido: " + day +
                     ". Apenas dias anteriores podem ser filtrados (dia atual: " + currentDay + ").");
             return;
         }
 
-        // 3. Day must be within retention window
         int oldestRetainedDay = Math.max(0, currentDay - D);
         if (day < oldestRetainedDay) {
             sendError(tag, "Parâmetro 'day' inválido: " + day +
@@ -244,16 +239,19 @@ public class ClientHandler implements Runnable {
         }
 
         Set<String> set = new HashSet<>();
-        for (int i = 0; i < size; i++) set.add(in.readUTF());
+        for (int i = 0; i < size; i++) {
+            set.add(in.readUTF());
+        }
         List<StorageEngine.Sale> events = storage.getEventsForDay(day, set);
         sendFilteredEvents(tag, events);
     }
 
     /**
-     * Bloqueia o processamento do pedido até que a condição de simultaneidade ocorra.
-     * @param tag Tag do pedido.
-     * @param in Stream de dados.
-     * @throws Exception Erro de rede ou interrupção.
+     * Processa pedido de notificação de venda simultânea.
+     *
+     * @param tag Tag do pedido
+     * @param in  Stream de dados
+     * @throws Exception Se ocorrer erro de comunicação ou interrupção
      */
     private void handleWaitSimul(int tag, DataInputStream in) throws Exception {
         String p1 = in.readUTF();
@@ -273,11 +271,11 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Bloqueia o processamento até que a meta de vendas consecutivas do mesmo
-     * produto seja atingida. Valida que n está num intervalo razoável.
-     * @param tag Tag do pedido.
-     * @param in Stream de dados.
-     * @throws Exception Erro de rede ou interrupção.
+     * Processa pedido de notificação de vendas consecutivas.
+     *
+     * @param tag Tag do pedido
+     * @param in  Stream de dados
+     * @throws Exception Se ocorrer erro de comunicação ou interrupção
      */
     private void handleWaitConsec(int tag, DataInputStream in)
             throws Exception {
@@ -290,14 +288,17 @@ public class ClientHandler implements Runnable {
 
         String prod = notify.waitConsecutive(n);
         ByteArrayOutputStream b = new ByteArrayOutputStream();
-        if (prod != null) new DataOutputStream(b).writeUTF(prod);
+        if (prod != null) {
+            new DataOutputStream(b).writeUTF(prod);
+        }
         stream.send(tag, Protocol.STATUS_OK, b.toByteArray());
     }
 
     /**
-     * Responde ao cliente com o valor inteiro do dia atual do servidor.
-     * @param tag Tag do pedido original.
-     * @throws IOException Erro de rede.
+     * Processa consulta do dia atual.
+     *
+     * @param tag Tag do pedido
+     * @throws IOException Se ocorrer erro de comunicação
      */
     private void handleGetCurrentDay(int tag) throws IOException {
         int day = storage.getCurrentDay();
@@ -307,9 +308,10 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Auxiliar para envio de mensagens de erro formatadas.
-     * @param tag Tag do pedido original.
-     * @param msg Mensagem de erro.
+     * Envia uma mensagem de erro ao cliente.
+     *
+     * @param tag Tag do pedido original
+     * @param msg Mensagem de erro
      */
     private void sendError(int tag, String msg) {
         try {
@@ -322,12 +324,13 @@ public class ClientHandler implements Runnable {
     }
 
     /**
-     * Implementa compressão por dicionário para envio de eventos. Substitui
-     * strings repetitivas por identificadores numéricos, reduzindo significativamente
-     * o tamanho da resposta em listas grandes de eventos.
-     * @param tag Tag da resposta.
-     * @param events Lista de vendas processadas.
-     * @throws IOException Erro na transmissão.
+     * Envia eventos filtrados com compressão por dicionário.
+     * Substitui strings de produtos repetidas por índices numéricos para
+     * reduzir o tamanho da mensagem.
+     *
+     * @param tag    Tag da resposta
+     * @param events Lista de eventos a enviar
+     * @throws IOException Se ocorrer erro de comunicação
      */
     private void sendFilteredEvents(int tag, List<StorageEngine.Sale> events)
             throws IOException {
@@ -336,7 +339,7 @@ public class ClientHandler implements Runnable {
         Map<String, Integer> dict = new HashMap<>();
         List<String> dictList = new ArrayList<>();
 
-        // Primeiro passo: Identificar todos os produtos únicos e atribuir-lhes um índice
+        // Construção do dicionário de compressão
         for (StorageEngine.Sale s : events) {
             if (!dict.containsKey(s.prod)) {
                 dict.put(s.prod, dictList.size());
@@ -344,11 +347,13 @@ public class ClientHandler implements Runnable {
             }
         }
 
-        // Escreve o dicionário no cabeçalho para que o cliente saiba decifrar os IDs
+        // Escrita do dicionário
         out.writeInt(dictList.size());
-        for (String s : dictList) out.writeUTF(s);
+        for (String s : dictList) {
+            out.writeUTF(s);
+        }
 
-        // Escreve os dados das vendas usando os índices inteiros em vez das strings
+        // Escrita dos eventos com referências ao dicionário
         out.writeInt(events.size());
         for (StorageEngine.Sale s : events) {
             out.writeInt(dict.get(s.prod));

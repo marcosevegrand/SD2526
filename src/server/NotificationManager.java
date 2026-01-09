@@ -5,10 +5,12 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Coordenador central de eventos e bloqueios em tempo real.
- * A intenção é permitir que threads de utilizadores fiquem em espera passiva por eventos
- * de negócio, sendo acordadas apenas quando as condições de venda são satisfeitas ou
- * quando o dia termina.
+ * Coordenador de notificações em tempo real.
+ *
+ * Permite que threads de clientes aguardem passivamente por eventos de negócio
+ * específicos: vendas simultâneas de dois produtos ou sequências de vendas
+ * consecutivas do mesmo produto. As threads são acordadas quando as condições
+ * são satisfeitas ou quando o dia termina.
  */
 public class NotificationManager {
 
@@ -18,24 +20,28 @@ public class NotificationManager {
     private String lastProductSold = null;
     private int consecutiveCount = 0;
     private int currentDay = 0;
+
     /**
-     * Permite que múltiplas threads aguardando diferentes contagens consecutivas
-     * encontrem os resultados corretos.
+     * Histórico de produtos que atingiram cada contagem consecutiva durante o dia.
+     * Permite que threads que iniciem a espera após a condição já ter sido
+     * satisfeita sejam imediatamente notificadas.
      */
     private final Map<Integer, Set<String>> streaksReached = new HashMap<>();
 
     /**
      * Regista uma venda e verifica se as metas de notificação foram atingidas.
-     * O uso do mapa 'streaksReached' é uma salvaguarda para que metas atingidas
-     * entre o despertar e a aquisição do lock não sejam perdidas.
-     * @param product Nome do produto vendido.
+     * Atualiza o conjunto de produtos vendidos no dia e a contagem de vendas
+     * consecutivas. Notifica todas as threads em espera para que verifiquem
+     * as suas condições.
+     *
+     * @param product Nome do produto vendido
      */
     public void registerSale(String product) {
         lock.lock();
         try {
             soldToday.add(product);
 
-            // Verifica continuidade para vendas consecutivas
+            // Atualização da contagem de vendas consecutivas
             if (product.equals(lastProductSold)) {
                 consecutiveCount++;
             } else {
@@ -43,10 +49,10 @@ public class NotificationManager {
                 consecutiveCount = 1;
             }
 
-            // CORRIGIDO: Adiciona ao Set em vez de sobrescrever o valor
+            // Regista que esta contagem foi atingida por este produto
             streaksReached.putIfAbsent(consecutiveCount, new HashSet<>());
             streaksReached.get(consecutiveCount).add(product);
-            // Acorda todas as threads que podem estar à espera deste produto ou quantidade
+
             change.signalAll();
         } finally {
             lock.unlock();
@@ -54,9 +60,7 @@ public class NotificationManager {
     }
 
     /**
-     * Reinicia o estado diário e sinaliza o fim do ciclo às threads bloqueadas.
-     * Ao incrementar 'currentDay', permitimos que as threads em espera percebam que
-     * a sua janela temporal expirou.
+     * Reinicia o estado diário e notifica o fim do ciclo às threads em espera.
      */
     public void newDay() {
         lock.lock();
@@ -73,21 +77,21 @@ public class NotificationManager {
     }
 
     /**
-     * Coloca o pedido em espera até que ambos os produtos tenham sido vendidos.
-     * @param p1 Primeiro produto alvo.
-     * @param p2 Segundo produto alvo.
-     * @return true se a condição foi cumprida, false se o dia fechou sem sucesso.
-     * @throws InterruptedException Se a thread for interrompida.
+     * Aguarda até que ambos os produtos sejam vendidos no mesmo dia.
+     *
+     * @param p1 Primeiro produto
+     * @param p2 Segundo produto
+     * @return true se a condição foi cumprida, false se o dia terminou
+     * @throws InterruptedException Se a thread for interrompida
      */
     public boolean waitSimultaneous(String p1, String p2)
-        throws InterruptedException {
+            throws InterruptedException {
         lock.lock();
         try {
             int startDay = currentDay;
-            // Espera enquanto o dia for o mesmo e a condição de ambos vendidos não for real
             while (
-                currentDay == startDay &&
-                (!soldToday.contains(p1) || !soldToday.contains(p2))
+                    currentDay == startDay &&
+                            (!soldToday.contains(p1) || !soldToday.contains(p2))
             ) {
                 change.await();
             }
@@ -98,17 +102,18 @@ public class NotificationManager {
     }
 
     /**
-     * Aguarda por uma sequência de N vendas seguidas de qualquer produto.
-     * CORRIGIDO: Retorna um dos produtos que atingiu a marca, ou null se o dia terminou.
-     * @param n Quantidade consecutiva pretendida.
-     * @return Nome do produto que atingiu a marca, ou null se o dia terminou.
-     * @throws InterruptedException Se houver interrupção da thread.
+     * Aguarda por uma sequência de N vendas consecutivas de qualquer produto.
+     * Verifica primeiro se a condição já foi satisfeita antes de bloquear,
+     * utilizando o histórico de streaks atingidos durante o dia.
+     *
+     * @param n Número de vendas consecutivas pretendido
+     * @return Nome do produto que atingiu a meta, ou null se o dia terminou
+     * @throws InterruptedException Se a thread for interrompida
      */
     public String waitConsecutive(int n) throws InterruptedException {
         lock.lock();
         try {
             int startDay = currentDay;
-            // Verifica o histórico de metas atingidas no dia atual antes de bloquear
             while (currentDay == startDay && !streaksReached.containsKey(n)) {
                 change.await();
             }

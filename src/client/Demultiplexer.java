@@ -9,9 +9,16 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Gestor de concorrência que permite que várias threads partilhem a mesma ligação TCP.
- * Resolve o problema de mapear respostas assíncronas vindas do servidor de volta
- * às threads que as solicitaram, usando identificadores (tags).
+ * Multiplexador de respostas para cliente multi-threaded.
+ *
+ * Permite que múltiplas threads de aplicação partilhem uma única conexão TCP,
+ * associando respostas às threads que as solicitaram através de identificadores
+ * únicos (tags). Uma thread dedicada lê continuamente do socket e distribui
+ * as respostas para as threads corretas.
+ *
+ * Este padrão resolve o problema de head-of-line blocking, onde uma operação
+ * lenta (como uma notificação bloqueante) não impede outras operações do
+ * mesmo cliente.
  */
 public class Demultiplexer implements AutoCloseable {
 
@@ -21,8 +28,9 @@ public class Demultiplexer implements AutoCloseable {
     private IOException error = null;
 
     /**
-     * Contentor para armazenar o estado de um pedido pendente.
-     * A intenção é manter o payload, o tipo de resposta e a condição de sinalização.
+     * Contentor para estado de um pedido pendente.
+     * Armazena os dados da resposta quando chegam e a condição de sinalização
+     * para acordar a thread que aguarda.
      */
     private static class Entry {
         byte[] data;
@@ -34,10 +42,21 @@ public class Demultiplexer implements AutoCloseable {
         }
     }
 
+    /**
+     * Constrói um demultiplexador sobre um FramedStream.
+     *
+     * @param stream Canal de comunicação framed
+     */
     public Demultiplexer(FramedStream stream) {
         this.stream = stream;
     }
 
+    /**
+     * Inicia a thread de leitura dedicada.
+     * Esta thread executa em loop infinito, lendo frames do servidor e
+     * distribuindo-os às threads de aplicação correspondentes. Em caso de
+     * erro de rede, todas as threads pendentes são notificadas.
+     */
     public void start() {
         new Thread(() -> {
             try {
@@ -59,7 +78,9 @@ public class Demultiplexer implements AutoCloseable {
                 lock.lock();
                 try {
                     this.error = e;
-                    for (Entry entry : pending.values()) entry.cond.signalAll();
+                    for (Entry entry : pending.values()) {
+                        entry.cond.signalAll();
+                    }
                 } finally {
                     lock.unlock();
                 }
@@ -67,6 +88,13 @@ public class Demultiplexer implements AutoCloseable {
         }).start();
     }
 
+    /**
+     * Regista uma tag para receber resposta.
+     * Deve ser chamado antes de enviar o pedido para evitar race conditions
+     * onde a resposta chega antes do registo.
+     *
+     * @param tag Identificador único do pedido
+     */
     public void register(int tag) {
         lock.lock();
         try {
@@ -76,29 +104,46 @@ public class Demultiplexer implements AutoCloseable {
         }
     }
 
+    /**
+     * Envia um frame através do canal partilhado.
+     *
+     * @param tag  Identificador do pedido
+     * @param type Código da operação
+     * @param data Payload serializado
+     * @throws IOException Se ocorrer erro de escrita
+     */
     public void send(int tag, int type, byte[] data) throws IOException {
         stream.send(tag, type, data);
     }
 
     /**
-     * Bloqueia a thread atual até que os dados com a tag correspondente cheguem.
-     * Lança exceção se o servidor responder com STATUS_ERR.
+     * Aguarda a resposta para uma tag específica.
+     * Bloqueia a thread atual até que a resposta correspondente chegue ou
+     * ocorra um erro de rede. Se o servidor responder com STATUS_ERR, é
+     * lançada uma exceção com a mensagem de erro.
+     *
+     * @param tag Identificador do pedido
+     * @return Payload da resposta
+     * @throws IOException          Se ocorrer erro de rede ou o servidor indicar erro
+     * @throws InterruptedException Se a thread for interrompida
+     * @throws IllegalStateException Se a tag não foi previamente registada
      */
     public byte[] receive(int tag) throws IOException, InterruptedException {
         lock.lock();
         try {
             Entry e = pending.get(tag);
-            if (e == null) throw new IllegalStateException(
-                    "Tag não foi registada: " + tag
-            );
+            if (e == null) {
+                throw new IllegalStateException("Tag não foi registada: " + tag);
+            }
 
             while (e.data == null && error == null) {
                 e.cond.await();
             }
 
-            if (error != null) throw error;
+            if (error != null) {
+                throw error;
+            }
 
-            // Verificar se o servidor indicou erro
             if (e.type == Protocol.STATUS_ERR) {
                 String msg = e.data.length > 0 ? new String(e.data) : "Erro do servidor";
                 throw new IOException(msg);
@@ -111,6 +156,11 @@ public class Demultiplexer implements AutoCloseable {
         }
     }
 
+    /**
+     * Encerra o canal de comunicação.
+     *
+     * @throws IOException Se ocorrer erro ao fechar
+     */
     @Override
     public void close() throws IOException {
         stream.close();

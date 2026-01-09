@@ -6,17 +6,22 @@ import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Motor de armazenamento especializado em séries temporais com gestão de memória.
- * Suporta grandes volumes de dados através de persistência em ficheiro, cache LRU
- * para séries frequentes e cache preguiçosa para resultados agregados. Preserva
- * o contador do dia atual entre reinicializações.
+ * Motor de armazenamento para séries temporais de vendas.
  *
- * NOTA sobre streaming (Requisito 7 do enunciado):
- * A implementação atual usa uma cache LRU que mantém no máximo S séries em memória.
- * Para datasets extremamente grandes (biliões de eventos por dia), seria necessário
- * implementar processamento em streaming onde os eventos são lidos, processados e
- * descartados incrementalmente sem carregar todo o ficheiro em memória.
- * A implementação atual é adequada para a maioria dos casos de uso práticos.
+ * Implementa uma hierarquia de armazenamento com três níveis:
+ *   - Buffer em memória para eventos do dia atual (máxima velocidade de escrita)
+ *   - Cache LRU para séries de dias anteriores (limite de S séries)
+ *   - Ficheiros em disco para persistência permanente
+ *
+ * Adicionalmente, mantém uma cache de agregações calculadas para evitar
+ * recálculos desnecessários.
+ *
+ * NOTA: A implementação atual usa uma cache LRU que mantém no máximo S séries
+ * em memória. Para datasets extremamente grandes (biliões de eventos por dia),
+ * seria necessário implementar processamento em streaming onde os eventos são
+ * lidos, processados e descartados incrementalmente sem carregar todo o ficheiro
+ * em memória. A implementação atual carrega ficheiros inteiros para memória,
+ * sendo adequada para a maioria dos casos de uso práticos.
  */
 public class StorageEngine {
 
@@ -27,13 +32,14 @@ public class StorageEngine {
     private final List<Sale> currentEvents = new ArrayList<>();
     private final String statePath = "data/state.bin";
 
-    /** Rastreia o dia mais antigo que já foi limpo, para evitar iterações desnecessárias. */
+    /** Dia mais antigo já limpo, para otimizar a remoção de ficheiros. */
     private int oldestCleanedDay = 0;
 
     /**
-     * Cache LRU (Least Recently Used) que mantém apenas as S séries mais
-     * recentemente acedidas em memória. Quando o limite S é atingido, a série
-     * menos recentemente utilizada é automaticamente removida para dar lugar a uma nova.
+     * Cache LRU que mantém as S séries mais recentemente acedidas em memória.
+     * Utiliza LinkedHashMap com ordem de acesso ativada. Quando o limite S é
+     * excedido, a entrada menos recentemente utilizada é automaticamente
+     * removida através da sobrescrita de removeEldestEntry.
      */
     private final Map<Integer, List<Sale>> loadedSeries = new LinkedHashMap<>(
             16,
@@ -41,19 +47,19 @@ public class StorageEngine {
             true
     ) {
         @Override
-        protected boolean removeEldestEntry(
-                Map.Entry<Integer, List<Sale>> eldest
-        ) {
+        protected boolean removeEldestEntry(Map.Entry<Integer, List<Sale>> eldest) {
             return size() > S;
         }
     };
 
-    /** Cache para guardar agregações já calculadas, indexadas por dia e produto. */
+    /** Cache de agregações calculadas, indexadas por dia e produto. */
     private final Map<Integer, Map<String, Stats>> aggCache = new HashMap<>();
 
     /**
-     * @param S Número máximo de séries (ficheiros) em memória RAM.
-     * @param D Janela de retenção de dias históricos.
+     * Inicializa o motor de armazenamento.
+     *
+     * @param S Número máximo de séries em memória
+     * @param D Janela de retenção em dias
      */
     public StorageEngine(int S, int D) {
         this.S = S;
@@ -62,49 +68,41 @@ public class StorageEngine {
     }
 
     /**
-     * Carrega o estado global do motor de armazenamento (dia atual) do disco.
-     * Evita sobreposição de ficheiros de dados após um restart do servidor.
+     * Carrega o estado persistido (dia atual e marcador de limpeza).
      */
     private void loadState() {
         File f = new File(statePath);
-        if (!f.exists()) return;
+        if (!f.exists()) {
+            return;
+        }
         try (DataInputStream in = new DataInputStream(new FileInputStream(f))) {
             this.currentDay = in.readInt();
-            // Carrega o dia mais antigo limpo, se existir (compatibilidade)
             if (in.available() >= 4) {
                 this.oldestCleanedDay = in.readInt();
             } else {
-                // Servidor antigo, calcula baseado no dia atual
                 this.oldestCleanedDay = Math.max(0, currentDay - D);
             }
         } catch (IOException e) {
-            System.err.println(
-                    "ERRO: Falha ao carregar estado do motor: " + e.getMessage()
-            );
+            System.err.println("ERRO: Falha ao carregar estado do motor: " + e.getMessage());
         }
     }
 
     /**
-     * Persiste o contador do dia atual no sistema de ficheiros.
+     * Persiste o estado atual em disco.
      */
     private void saveState() {
-        try (
-                DataOutputStream out = new DataOutputStream(
-                        new FileOutputStream(statePath)
-                )
-        ) {
+        try (DataOutputStream out = new DataOutputStream(new FileOutputStream(statePath))) {
             out.writeInt(currentDay);
             out.writeInt(oldestCleanedDay);
         } catch (IOException e) {
-            System.err.println(
-                    "ERRO: Falha ao salvar estado do motor: " + e.getMessage()
-            );
+            System.err.println("ERRO: Falha ao salvar estado do motor: " + e.getMessage());
         }
     }
 
     /**
-     * Retorna o dia atual de operação do servidor.
-     * @return O contador do dia corrente.
+     * Retorna o dia atual de operação.
+     *
+     * @return Número do dia corrente
      */
     public int getCurrentDay() {
         lock.lock();
@@ -116,10 +114,11 @@ public class StorageEngine {
     }
 
     /**
-     * Adiciona um evento ao buffer do dia atual (que reside sempre em RAM).
-     * @param p Produto.
-     * @param q Quantidade.
-     * @param pr Preço.
+     * Adiciona um evento de venda ao buffer do dia atual.
+     *
+     * @param p  Identificador do produto
+     * @param q  Quantidade vendida
+     * @param pr Preço unitário
      */
     public void addEvent(String p, int q, double pr) {
         lock.lock();
@@ -131,9 +130,11 @@ public class StorageEngine {
     }
 
     /**
-     * Escreve os eventos acumulados do dia em disco, limpa dados obsoletos,
-     * e atualiza o estado persistente. Incrementa o contador de dias.
-     * @throws IOException Se falhar a escrita física.
+     * Persiste os eventos do dia atual e avança para o próximo dia.
+     * Os eventos são escritos para um ficheiro numerado, as caches são
+     * atualizadas e ficheiros fora da janela de retenção são removidos.
+     *
+     * @throws IOException Se ocorrer erro de escrita
      */
     public void persistDay() throws IOException {
         lock.lock();
@@ -154,12 +155,10 @@ public class StorageEngine {
             currentDay++;
             saveState();
 
-            // Remove proativamente dados fora da janela de interesse (D)
+            // Limpeza de dados fora da janela de retenção
             int threshold = currentDay - D;
             aggCache.keySet().removeIf(day -> day < threshold);
             loadedSeries.keySet().removeIf(day -> day < threshold);
-
-            // Limpa ficheiros antigos de forma eficiente
             cleanupOldFiles(threshold);
         } finally {
             lock.unlock();
@@ -167,14 +166,15 @@ public class StorageEngine {
     }
 
     /**
-     * Remove ficheiros de dias que estão fora da janela de retenção.
-     * Otimizado para apenas verificar ficheiros que ainda não foram limpos.
-     * @param threshold Dias abaixo deste valor devem ser removidos.
+     * Remove ficheiros de dias fora da janela de retenção.
+     *
+     * @param threshold Dias abaixo deste valor são removidos
      */
     private void cleanupOldFiles(int threshold) {
-        if (threshold <= oldestCleanedDay) return;
+        if (threshold <= oldestCleanedDay) {
+            return;
+        }
 
-        // Apenas itera sobre os dias que ainda não foram limpos
         for (int day = oldestCleanedDay; day < threshold; day++) {
             File oldFile = new File("data/day_" + day + ".dat");
             if (oldFile.exists()) {
@@ -184,17 +184,17 @@ public class StorageEngine {
             }
         }
 
-        // Atualiza o marcador para a próxima limpeza
         oldestCleanedDay = threshold;
     }
 
     /**
-     * Calcula métricas estatísticas agregando dados de múltiplos dias.
-     * @param type Tipo de operação estatística.
-     * @param prod Produto a analisar.
-     * @param d Quantos dias retroativos incluir.
-     * @return O valor final do cálculo.
-     * @throws IOException Se for necessário ler dados do disco.
+     * Calcula uma agregação estatística sobre dados históricos.
+     *
+     * @param type Tipo de agregação (QTY, VOL, AVG, MAX)
+     * @param prod Produto a analisar
+     * @param d    Número de dias retroativos
+     * @return Valor calculado da agregação
+     * @throws IOException Se ocorrer erro ao ler dados do disco
      */
     public double aggregate(int type, String prod, int d) throws IOException {
         lock.lock();
@@ -203,13 +203,13 @@ public class StorageEngine {
             double totalVol = 0;
             double globalMax = 0;
 
-            // Processa min(d, D, currentDay) dias para tratar todos os casos limite
             int daysToProcess = Math.min(d, Math.min(D, currentDay));
 
             for (int i = 1; i <= daysToProcess; i++) {
                 int target = currentDay - i;
-                // Verificação adicional de segurança (redundante mas segura)
-                if (target < 0) continue;
+                if (target < 0) {
+                    continue;
+                }
 
                 Stats s = getOrComputeStats(target, prod);
                 totalCount += s.count;
@@ -220,9 +220,7 @@ public class StorageEngine {
             return switch (type) {
                 case Protocol.AGGR_QTY -> totalCount;
                 case Protocol.AGGR_VOL -> totalVol;
-                case Protocol.AGGR_AVG -> totalCount == 0
-                        ? 0
-                        : totalVol / totalCount;
+                case Protocol.AGGR_AVG -> totalCount == 0 ? 0 : totalVol / totalCount;
                 case Protocol.AGGR_MAX -> globalMax;
                 default -> 0;
             };
@@ -232,17 +230,20 @@ public class StorageEngine {
     }
 
     /**
-     * Recupera estatísticas da cache ou processa a série se for a primeira vez.
-     * @param day Dia.
-     * @param prod Produto.
-     * @return Estatísticas do par dia/produto.
-     * @throws IOException Erro ao aceder aos dados.
+     * Obtém estatísticas da cache ou calcula-as a partir dos dados.
+     *
+     * @param day  Dia a processar
+     * @param prod Produto a analisar
+     * @return Estatísticas calculadas
+     * @throws IOException Se ocorrer erro de leitura
      */
     private Stats getOrComputeStats(int day, String prod) throws IOException {
         aggCache.putIfAbsent(day, new HashMap<>());
         Map<String, Stats> dayCache = aggCache.get(day);
 
-        if (dayCache.containsKey(prod)) return dayCache.get(prod);
+        if (dayCache.containsKey(prod)) {
+            return dayCache.get(prod);
+        }
 
         Stats res = new Stats();
         List<Sale> events = fetchDayEvents(day);
@@ -258,28 +259,33 @@ public class StorageEngine {
     }
 
     /**
-     * Gere o carregamento de dados do disco respeitando a cache LRU (S).
-     * @param day Dia alvo.
-     * @return Lista de vendas do ficheiro.
-     * @throws IOException Erro de acesso ao ficheiro.
+     * Carrega eventos de um dia, utilizando a cache LRU se disponível.
+     *
+     * @param day Dia a carregar
+     * @return Lista de eventos do dia
+     * @throws IOException Se ocorrer erro de leitura
      */
     private List<Sale> fetchDayEvents(int day) throws IOException {
-        if (loadedSeries.containsKey(day)) return loadedSeries.get(day);
+        if (loadedSeries.containsKey(day)) {
+            return loadedSeries.get(day);
+        }
 
         File f = new File("data/day_" + day + ".dat");
-        if (!f.exists()) return new ArrayList<>();
+        if (!f.exists()) {
+            return new ArrayList<>();
+        }
 
         List<Sale> list = loadFile(f);
-
         loadedSeries.put(day, list);
         return list;
     }
 
     /**
-     * Lê fisicamente o ficheiro dat do disco.
-     * @param f Ficheiro.
-     * @return Lista de vendas.
-     * @throws IOException Erro de leitura.
+     * Lê um ficheiro de dados do disco.
+     *
+     * @param f Ficheiro a ler
+     * @return Lista de eventos
+     * @throws IOException Se ocorrer erro de leitura
      */
     private List<Sale> loadFile(File f) throws IOException {
         List<Sale> l = new ArrayList<>();
@@ -296,23 +302,17 @@ public class StorageEngine {
     }
 
     /**
-     * Filtra vendas de um dia específico.
+     * Filtra eventos de um dia específico por produto.
      *
-     * A validação completa é feita no ClientHandler, incluindo:
-     * - day >= 0
-     * - day < currentDay
-     * - day >= currentDay - D (janela de retenção)
-     *
-     * @param day Dia.
-     * @param filter Nomes permitidos.
-     * @return Lista filtrada.
-     * @throws IOException Erro de rede ou disco.
+     * @param day    Dia a consultar (deve ser menor que o dia atual)
+     * @param filter Conjunto de produtos a incluir
+     * @return Lista de eventos filtrados
+     * @throws IOException Se ocorrer erro de leitura
      */
     public List<Sale> getEventsForDay(int day, Set<String> filter)
             throws IOException {
         lock.lock();
         try {
-            // Verificação de segurança (redundante se ClientHandler validou corretamente)
             if (day < 0 || day >= currentDay) {
                 throw new IllegalArgumentException(
                         "Dia inválido: " + day + ". Intervalo válido: [0, " + (currentDay - 1) + "]"
@@ -321,20 +321,38 @@ public class StorageEngine {
 
             List<Sale> all = fetchDayEvents(day);
             List<Sale> filtered = new ArrayList<>();
-            for (Sale s : all) if (filter.contains(s.prod)) filtered.add(s);
+            for (Sale s : all) {
+                if (filter.contains(s.prod)) {
+                    filtered.add(s);
+                }
+            }
             return filtered;
         } finally {
             lock.unlock();
         }
     }
 
-    /** Objeto de transporte para dados de venda. Campos públicos finais para imutabilidade. */
+    /**
+     * Representação imutável de um evento de venda.
+     */
     public static class Sale {
 
+        /** Identificador do produto. */
         public final String prod;
+
+        /** Quantidade vendida. */
         public final int qty;
+
+        /** Preço unitário. */
         public final double price;
 
+        /**
+         * Cria um novo evento de venda.
+         *
+         * @param p  Produto
+         * @param q  Quantidade
+         * @param pr Preço
+         */
         public Sale(String p, int q, double pr) {
             prod = p;
             qty = q;
@@ -342,9 +360,10 @@ public class StorageEngine {
         }
     }
 
-    /** Contentor interno para caching de agregações parciais. */
+    /**
+     * Contentor para estatísticas agregadas de um produto num dia.
+     */
     static class Stats {
-
         int count = 0;
         double vol = 0;
         double max = 0;

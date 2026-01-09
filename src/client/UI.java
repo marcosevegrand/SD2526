@@ -4,25 +4,25 @@ import common.Protocol;
 import java.util.*;
 
 /**
- * Interface de Linha de Comando (CLI) para interação com o sistema de séries temporais.
- * A intenção desta classe é fornecer um ambiente interativo onde o utilizador pode
- * executar todas as operações suportadas pelo protocolo, desde a autenticação até
- * à monitorização de eventos em tempo real.
+ * Interface de Linha de Comando para o sistema de séries temporais.
+ *
+ * Fornece um ambiente interativo onde o utilizador pode executar todas as
+ * operações suportadas pelo protocolo: autenticação, registo de eventos,
+ * consultas estatísticas e monitorização em tempo real.
  */
 public class UI {
 
     /**
-     * Ponto de entrada da aplicação CLI.
-     * Gere o ciclo de leitura de comandos e a manutenção do estado da sessão.
+     * Ponto de entrada da aplicação cliente.
+     * Gere o ciclo de leitura de comandos e mantém o estado da sessão
+     * (autenticado ou não autenticado).
+     *
      * @param args Argumentos de linha de comando: [host] [port]
-     *             - host: endereço do servidor (default: localhost)
-     *             - port: porta do servidor (default: 12345)
      */
     public static void main(String[] args) {
         String host = "localhost";
         int port = 12345;
 
-        // Parse command-line arguments
         if (args.length > 0) {
             host = args[0];
         }
@@ -45,8 +45,8 @@ public class UI {
         }
 
         try (
-            Scanner sc = new Scanner(System.in);
-            ClientLib lib = new ClientLib(host, port)
+                Scanner sc = new Scanner(System.in);
+                ClientLib lib = new ClientLib(host, port)
         ) {
             System.out.println("========================================");
             System.out.println("   CLIENTE DE SÉRIES TEMPORAIS (SD)     ");
@@ -58,14 +58,15 @@ public class UI {
             boolean loggedIn = false;
 
             while (true) {
-                // Indicador visual de estado de autenticação
-                System.out.print(
-                    loggedIn ? "[Autenticado] > " : "[Visitante] > "
-                );
+                System.out.print(loggedIn ? "[Autenticado] > " : "[Visitante] > ");
 
-                if (!sc.hasNextLine()) break;
+                if (!sc.hasNextLine()) {
+                    break;
+                }
                 String line = sc.nextLine().trim();
-                if (line.isEmpty()) continue;
+                if (line.isEmpty()) {
+                    continue;
+                }
 
                 String[] parts = line.split("\\s+");
                 String cmd = parts[0].toLowerCase();
@@ -81,13 +82,11 @@ public class UI {
                         continue;
                     }
 
-                    // Comando utilitário para limpar a consola
                     if (cmd.equals("limpar")) {
                         handleClear();
                         continue;
                     }
 
-                    // Comandos de acesso (não requerem login)
                     if (cmd.equals("registar")) {
                         handleRegister(parts, lib);
                         continue;
@@ -98,10 +97,9 @@ public class UI {
                         continue;
                     }
 
-                    // Guarda de segurança para comandos de negócio
                     if (!loggedIn) {
                         System.out.println(
-                            "ERRO: Operação negada. Deve autenticar-se primeiro usando 'entrar'."
+                                "ERRO: Operação negada. Deve autenticar-se primeiro usando 'entrar'."
                         );
                         continue;
                     }
@@ -113,15 +111,14 @@ public class UI {
             }
         } catch (Exception e) {
             System.err.println(
-                "ERRO FATAL: O servidor não está acessível ou ocorreu um erro crítico."
+                    "ERRO FATAL: O servidor não está acessível ou ocorreu um erro crítico."
             );
             e.printStackTrace();
         }
     }
 
     /**
-     * Limpa o ecrã do terminal utilizando sequências de escape ANSI.
-     * A sequência \033[H move o cursor para o início e \033[2J limpa o conteúdo.
+     * Limpa o ecrã do terminal usando sequências ANSI.
      */
     private static void handleClear() {
         System.out.print("\033[H\033[2J");
@@ -130,229 +127,193 @@ public class UI {
     }
 
     /**
-     * Gere a lógica de registo de utilizadores.
-     * @param parts Argumentos do comando.
-     * @param lib Instância da biblioteca.
-     * @throws Exception Erros de rede.
+     * Processa o comando de registo de utilizador.
+     *
+     * @param parts Argumentos do comando
+     * @param lib   Instância da biblioteca cliente
+     * @throws Exception Se ocorrer erro de comunicação
      */
     private static void handleRegister(String[] parts, ClientLib lib)
-        throws Exception {
+            throws Exception {
         if (parts.length != 3) {
-            System.out.println(
-                "Uso incorreto. Sintáxe: registar <username> <password>"
-            );
+            System.out.println("Uso incorreto. Sintáxe: registar <username> <password>");
             return;
         }
         boolean ok = lib.register(parts[1], parts[2]);
         System.out.println(
-            "Registo: " +
-                (ok ? "CONCLUÍDO COM SUCESSO" : "FALHOU (Utilizador já existe)")
+                "Registo: " + (ok ? "CONCLUÍDO COM SUCESSO" : "FALHOU (Utilizador já existe)")
         );
     }
 
     /**
-     * Gere a lógica de login.
-     * @param parts Argumentos do comando.
-     * @param lib Instância da biblioteca.
-     * @return true se o login for bem-sucedido.
-     * @throws Exception Erros de rede.
+     * Processa o comando de autenticação.
+     *
+     * @param parts Argumentos do comando
+     * @param lib   Instância da biblioteca cliente
+     * @return true se o login foi bem-sucedido
+     * @throws Exception Se ocorrer erro de comunicação
      */
     private static boolean handleLogin(String[] parts, ClientLib lib)
-        throws Exception {
+            throws Exception {
         if (parts.length != 3) {
-            System.out.println(
-                "Uso incorreto. Sintáxe: entrar <username> <password>"
-            );
+            System.out.println("Uso incorreto. Sintáxe: entrar <username> <password>");
             return false;
         }
         boolean ok = lib.login(parts[1], parts[2]);
-        System.out.println(
-            "Login: " + (ok ? "SUCESSO" : "CREDENCIAIS INVÁLIDAS")
-        );
+        System.out.println("Login: " + (ok ? "SUCESSO" : "CREDENCIAIS INVÁLIDAS"));
         return ok;
     }
 
     /**
-     * Despacha os comandos de negócio e estatística para as funções respetivas.
-     * A intenção é manter o método principal limpo e organizar os comandos por categorias.
-     * @param cmd Comando principal.
-     * @param parts Argumentos.
-     * @param lib Instância da biblioteca.
-     * @throws Exception Se a sintáxe for inválida ou ocorrer erro na ClientLib.
+     * Despacha comandos de negócio para as funções apropriadas.
+     *
+     * @param cmd   Comando principal
+     * @param parts Argumentos completos
+     * @param lib   Instância da biblioteca cliente
+     * @throws Exception Se ocorrer erro de sintaxe ou comunicação
      */
     private static void processBusinessCommands(
-        String cmd,
-        String[] parts,
-        ClientLib lib
+            String cmd,
+            String[] parts,
+            ClientLib lib
     ) throws Exception {
         switch (cmd) {
             case "dia":
                 int currentDay = lib.getCurrentDay();
                 System.out.println("Dia atual no servidor: " + currentDay);
                 break;
+
             case "evento":
-                if (parts.length != 4) throw new IllegalArgumentException(
-                    "Sintáxe: evento <produto> <qtd> <preço>"
-                );
+                if (parts.length != 4) {
+                    throw new IllegalArgumentException("Sintáxe: evento <produto> <qtd> <preço>");
+                }
                 lib.addEvent(
-                    parts[1],
-                    Integer.parseInt(parts[2]),
-                    Double.parseDouble(parts[3])
+                        parts[1],
+                        Integer.parseInt(parts[2]),
+                        Double.parseDouble(parts[3])
                 );
                 System.out.println("Evento de venda registado.");
                 break;
+
             case "novodia":
                 lib.newDay();
-                System.out.println(
-                    "Ciclo diário encerrado. Dados persistidos em disco."
-                );
+                System.out.println("Ciclo diário encerrado. Dados persistidos em disco.");
                 break;
+
             case "qtd":
                 handleAggr(Protocol.AGGR_QTY, parts, lib, "Quantidade Total");
                 break;
+
             case "vol":
                 handleAggr(Protocol.AGGR_VOL, parts, lib, "Volume Financeiro");
                 break;
+
             case "media":
                 handleAggr(Protocol.AGGR_AVG, parts, lib, "Preço Médio");
                 break;
+
             case "max":
                 handleAggr(Protocol.AGGR_MAX, parts, lib, "Preço Máximo");
                 break;
+
             case "filtrar":
-                if (parts.length < 3) throw new IllegalArgumentException(
-                    "Sintáxe: filtrar <dia> <p1> [p2...]"
-                );
+                if (parts.length < 3) {
+                    throw new IllegalArgumentException("Sintáxe: filtrar <dia> <p1> [p2...]");
+                }
                 int day = Integer.parseInt(parts[1]);
                 Set<String> filter = new HashSet<>(
-                    Arrays.asList(parts).subList(2, parts.length)
+                        Arrays.asList(parts).subList(2, parts.length)
                 );
                 List<String> results = lib.getEvents(day, filter);
-                System.out.println(
-                    "--- Resultados do Filtro (Dia " + day + ") ---"
-                );
-                if (results.isEmpty()) System.out.println(
-                    "Nenhum evento encontrado."
-                );
-                else results.forEach(s -> System.out.println("  " + s));
+                System.out.println("--- Resultados do Filtro (Dia " + day + ") ---");
+                if (results.isEmpty()) {
+                    System.out.println("Nenhum evento encontrado.");
+                } else {
+                    results.forEach(s -> System.out.println("  " + s));
+                }
                 break;
+
             case "simul":
-                if (parts.length != 3) throw new IllegalArgumentException(
-                    "Sintáxe: simul <produto1> <produto2>"
-                );
-                System.out.println(
-                    "A aguardar ocorrência simultânea... (Thread bloqueada)"
-                );
+                if (parts.length != 3) {
+                    throw new IllegalArgumentException("Sintáxe: simul <produto1> <produto2>");
+                }
+                System.out.println("A aguardar ocorrência simultânea... (Thread bloqueada)");
                 boolean sim = lib.waitSimultaneous(parts[1], parts[2]);
                 System.out.println(
-                    "Notificação: " +
-                        (sim
-                            ? "A meta foi atingida!"
-                            : "O dia terminou sem ocorrência.")
+                        "Notificação: " + (sim ? "A meta foi atingida!" : "O dia terminou sem ocorrência.")
                 );
                 break;
+
             case "consec":
-                if (parts.length != 2) throw new IllegalArgumentException(
-                    "Sintáxe: consec <N>"
-                );
-                System.out.println(
-                    "A aguardar sequência consecutiva... (Thread bloqueada)"
-                );
+                if (parts.length != 2) {
+                    throw new IllegalArgumentException("Sintáxe: consec <N>");
+                }
+                System.out.println("A aguardar sequência consecutiva... (Thread bloqueada)");
                 String res = lib.waitConsecutive(Integer.parseInt(parts[1]));
                 System.out.println(
-                    "Notificação: " +
-                        (res != null
-                            ? "Produto vencedor: " + res
-                            : "O dia terminou.")
+                        "Notificação: " + (res != null ? "Produto vencedor: " + res : "O dia terminou.")
                 );
                 break;
+
             default:
-                System.out.println(
-                    "Comando desconhecido. Digite 'ajuda' para ver as opções."
-                );
+                System.out.println("Comando desconhecido. Digite 'ajuda' para ver as opções.");
         }
     }
 
     /**
-     * Auxiliar para processar todos os tipos de agregação estatística.
-     * @param type Tipo de protocolo.
-     * @param parts Argumentos.
-     * @param lib Biblioteca.
-     * @param label Texto para exibição.
-     * @throws Exception Erros de parsing ou rede.
+     * Processa comandos de agregação estatística.
+     *
+     * @param type  Tipo de agregação
+     * @param parts Argumentos do comando
+     * @param lib   Instância da biblioteca cliente
+     * @param label Etiqueta para exibição
+     * @throws Exception Se ocorrer erro de sintaxe ou comunicação
      */
     private static void handleAggr(
-        int type,
-        String[] parts,
-        ClientLib lib,
-        String label
+            int type,
+            String[] parts,
+            ClientLib lib,
+            String label
     ) throws Exception {
-        if (parts.length != 3) throw new IllegalArgumentException(
-            "Sintáxe: " + parts[0] + " <produto> <dias>"
-        );
+        if (parts.length != 3) {
+            throw new IllegalArgumentException("Sintáxe: " + parts[0] + " <produto> <dias>");
+        }
         double res = lib.getAggregation(
-            type,
-            parts[1],
-            Integer.parseInt(parts[2])
+                type,
+                parts[1],
+                Integer.parseInt(parts[2])
         );
         System.out.printf(
-            "%s para '%s' (%s dias): %.2f%n",
-            label,
-            parts[1],
-            parts[2],
-            res
+                "%s para '%s' (%s dias): %.2f%n",
+                label,
+                parts[1],
+                parts[2],
+                res
         );
     }
 
     /**
-     * Exibe o manual de instruções detalhado para o utilizador.
-     * A intenção é servir de guia rápido para a sintáxe de cada comando.
+     * Exibe o manual de comandos disponíveis.
      */
     private static void printHelp() {
         System.out.println("\n--- MANUAL DE COMANDOS ---");
         System.out.println("Acesso:");
-        System.out.println(
-            "  registar <user> <pass>   - Cria uma nova conta no servidor."
-        );
-        System.out.println(
-            "  entrar <user> <pass>         - Autentica-se para aceder às funções."
-        );
-        System.out.println(
-            "  sair                         - Encerra a aplicação."
-        );
+        System.out.println("  registar <user> <pass>   - Cria uma nova conta no servidor.");
+        System.out.println("  entrar <user> <pass>     - Autentica-se para aceder às funções.");
+        System.out.println("  sair                     - Encerra a aplicação.");
         System.out.println("\nDados:");
-        System.out.println(
-            "  dia                          - Consulta o dia atual no servidor."
-        );
-        System.out.println(
-            "  evento <prod> <qtd> <preco>  - Regista uma venda de um produto no dia atual."
-        );
-        System.out.println(
-            "  novodia                      - Fecha o dia atual e guarda os dados permanentemente."
-        );
-        System.out.println(
-            "  filtrar <dia> <p1> <p2> ...  - Lista vendas de certos produtos num dia passado."
-        );
+        System.out.println("  dia                          - Consulta o dia atual no servidor.");
+        System.out.println("  evento <prod> <qtd> <preco>  - Regista uma venda de um produto no dia atual.");
+        System.out.println("  novodia                      - Fecha o dia atual e guarda os dados permanentemente.");
+        System.out.println("  filtrar <dia> <p1> <p2> ...  - Lista vendas de certos produtos num dia passado.");
         System.out.println("\nEstatísticas (histórico):");
-        System.out.println(
-            "  qtd <prod> <dias>            - Soma da quantidade vendida nos últimos N dias."
-        );
-        System.out.println(
-            "  vol <prod> <dias>            - Valor financeiro total (qtd * preço) nos últimos N dias."
-        );
-        System.out.println(
-            "  media <prod> <dias>          - Preço médio ponderado nos últimos N dias."
-        );
-        System.out.println(
-            "  max <prod> <dias>            - Preço unitário máximo registado nos últimos N dias."
-        );
+        System.out.println("  qtd <prod> <dias>            - Soma da quantidade vendida nos últimos N dias.");
+        System.out.println("  vol <prod> <dias>            - Valor financeiro total (qtd * preço) nos últimos N dias.");
+        System.out.println("  media <prod> <dias>          - Preço médio ponderado nos últimos N dias.");
+        System.out.println("  max <prod> <dias>            - Preço unitário máximo registado nos últimos N dias.");
         System.out.println("\nNotificações (bloqueante):");
-        System.out.println(
-            "  simul <prod1> <prod2>        - Espera que ambos os produtos sejam vendidos no mesmo dia."
-        );
-        System.out.println(
-            "  consec <N>                   - Espera que um produto seja vendido N vezes seguidas."
-        );
+        System.out.println("  simul <prod1> <prod2>        - Espera que ambos os produtos sejam vendidos no mesmo dia.");
+        System.out.println("  consec <N>                   - Espera que um produto seja vendido N vezes seguidas.");
         System.out.println("--------------------------\n");
     }
 }

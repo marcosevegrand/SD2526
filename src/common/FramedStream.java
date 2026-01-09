@@ -5,25 +5,34 @@ import java.net.Socket;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Implementa a técnica de "framing" sobre um fluxo TCP byte-stream.
- * A intenção é garantir que as mensagens são lidas inteiras e de forma atómica,
- * prefixando-as com o seu tamanho no envio e bloqueando a leitura até que o payload chegue.
+ * Implementação de framing sobre streams TCP.
+ *
+ * Esta classe resolve o problema da natureza orientada a bytes do TCP, onde não
+ * existe garantia de que os dados sejam recebidos na mesma granularidade em que
+ * foram enviados. Cada mensagem é prefixada com o seu tamanho, permitindo que o
+ * receptor saiba exatamente quantos bytes deve ler para reconstruir a mensagem completa.
+ *
+ * A classe é thread-safe, utilizando locks separados para leitura e escrita,
+ * permitindo operações full-duplex simultâneas.
  */
 public class FramedStream implements AutoCloseable {
 
-    private final Socket socket;  // FIX: Keep reference to socket for proper closing
+    private final Socket socket;
     private final DataInputStream in;
     private final DataOutputStream out;
     private final ReentrantLock writeLock = new ReentrantLock();
     private final ReentrantLock readLock = new ReentrantLock();
 
     /**
-     * Envolve as streams de um socket em decorators de buffer e estruturação de dados.
-     * @param socket O socket ativo para a comunicação.
-     * @throws IOException Se falhar a obtenção das streams do socket.
+     * Constrói um FramedStream sobre um socket existente.
+     * As streams são decoradas com buffers para melhorar o desempenho de I/O,
+     * reduzindo o número de chamadas de sistema.
+     *
+     * @param socket Socket TCP ativo para comunicação
+     * @throws IOException Se ocorrer erro ao obter as streams do socket
      */
     public FramedStream(Socket socket) throws IOException {
-        this.socket = socket;  // FIX: Store socket reference
+        this.socket = socket;
         this.in = new DataInputStream(
                 new BufferedInputStream(socket.getInputStream())
         );
@@ -33,12 +42,20 @@ public class FramedStream implements AutoCloseable {
     }
 
     /**
-     * Envia um frame completo de forma atómica para a rede.
-     * O lock de escrita é essencial para evitar que bytes de threads diferentes se misturem no buffer.
-     * @param tag ID de correlação.
-     * @param type Tipo de mensagem.
-     * @param payload Conteúdo binário da mensagem.
-     * @throws IOException Se a ligação for interrompida.
+     * Envia um frame completo de forma atómica.
+     *
+     * O frame é composto por:
+     *   - Tag (4 bytes) - identificador de correlação para respostas
+     *   - Tipo (4 bytes) - código da operação conforme Protocol
+     *   - Tamanho (4 bytes) - comprimento do payload
+     *   - Payload (n bytes) - dados da mensagem
+     *
+     * O lock de escrita garante que frames de diferentes threads não se intercalam.
+     *
+     * @param tag     Identificador único do pedido para correlação
+     * @param type    Código da operação
+     * @param payload Dados binários da mensagem
+     * @throws IOException Se ocorrer erro de escrita na rede
      */
     public void send(int tag, int type, byte[] payload) throws IOException {
         writeLock.lock();
@@ -47,7 +64,6 @@ public class FramedStream implements AutoCloseable {
             out.writeInt(type);
             out.writeInt(payload.length);
             out.write(payload);
-            // O flush garante que os dados saem do buffer Java para o sistema operativo
             out.flush();
         } finally {
             writeLock.unlock();
@@ -55,9 +71,13 @@ public class FramedStream implements AutoCloseable {
     }
 
     /**
-     * Reconstrói um frame a partir da rede, aguardando que todos os bytes cheguem.
-     * @return Uma instância de Frame contendo os dados lidos.
-     * @throws IOException Se houver inconsistência nos dados ou fecho do socket.
+     * Recebe um frame completo da rede.
+     * Bloqueia até que todos os bytes do frame estejam disponíveis.
+     * O método readFully garante que não são devolvidos frames parciais
+     * devido a fragmentação TCP.
+     *
+     * @return Frame contendo tag, tipo e payload
+     * @throws IOException Se ocorrer erro de leitura ou fecho de conexão
      */
     public Frame receive() throws IOException {
         readLock.lock();
@@ -66,7 +86,6 @@ public class FramedStream implements AutoCloseable {
             int type = in.readInt();
             int len = in.readInt();
             byte[] payload = new byte[len];
-            // readFully impede que leiamos frames parciais devido a fragmentação TCP
             in.readFully(payload);
             return new Frame(tag, type, payload);
         } finally {
@@ -75,9 +94,9 @@ public class FramedStream implements AutoCloseable {
     }
 
     /**
-     * Fecha as streams e o socket associado.
-     * FIX: Now explicitly closes the underlying socket to ensure proper cleanup.
-     * @throws IOException Se houver erro no fecho.
+     * Encerra todas as streams e o socket subjacente.
+     *
+     * @throws IOException Se ocorrer erro durante o fecho
      */
     @Override
     public void close() throws IOException {
@@ -87,25 +106,33 @@ public class FramedStream implements AutoCloseable {
         try {
             out.close();
         } catch (IOException ignored) {}
-        // FIX: Explicitly close the socket
         if (socket != null && !socket.isClosed()) {
             socket.close();
         }
     }
 
     /**
-     * Estrutura de dados imutável para transporte de mensagens no protocolo.
+     * Estrutura imutável que representa uma mensagem no protocolo.
+     * Encapsula os três componentes de uma mensagem: identificador de correlação,
+     * tipo de operação e dados binários.
      */
     public static class Frame {
 
+        /** Identificador único para correlação pedido-resposta. */
         public final int tag;
+
+        /** Código da operação conforme Protocol. */
         public final int type;
+
+        /** Dados binários da mensagem. */
         public final byte[] payload;
 
         /**
-         * @param tag Identificador.
-         * @param type Código da operação.
-         * @param payload Dados da mensagem.
+         * Constrói um novo frame.
+         *
+         * @param tag     Identificador de correlação
+         * @param type    Código da operação
+         * @param payload Dados da mensagem
          */
         public Frame(int tag, int type, byte[] payload) {
             this.tag = tag;

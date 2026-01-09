@@ -8,9 +8,14 @@ import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Biblioteca de alto nível para interação com o serviço de séries temporais.
- * Esta classe abstrai a complexidade da rede e do protocolo binário, permitindo que a UI
- * ou outros módulos consumam o serviço através de chamadas de métodos simples.
+ * Biblioteca cliente para interação com o serviço de séries temporais.
+ *
+ * Abstrai a complexidade do protocolo binário e da comunicação em rede,
+ * expondo uma API de alto nível com métodos para todas as operações de negócio:
+ * autenticação, registo de eventos, consultas estatísticas e notificações.
+ *
+ * A classe é thread-safe, permitindo que múltiplas threads de aplicação
+ * executem operações concorrentemente sobre a mesma instância.
  */
 public class ClientLib implements AutoCloseable {
 
@@ -19,23 +24,23 @@ public class ClientLib implements AutoCloseable {
     private final ReentrantLock tagLock = new ReentrantLock();
 
     /**
-     * Inicializa a ligação com o servidor remoto.
-     * É necessário estabelecer a base da comunicação TCP antes de iniciar o demultiplexador.
-     * @param host Endereço de rede do servidor.
-     * @param port Porto de escuta do servidor.
-     * @throws IOException Se não for possível estabelecer a ligação física com o socket.
+     * Estabelece ligação com o servidor remoto.
+     *
+     * @param host Endereço de rede do servidor
+     * @param port Porto de escuta do servidor
+     * @throws IOException Se não for possível estabelecer a ligação
      */
     public ClientLib(String host, int port) throws IOException {
         this.demux = new Demultiplexer(
-            new FramedStream(new Socket(host, port))
+                new FramedStream(new Socket(host, port))
         );
         this.demux.start();
     }
 
     /**
-     * Garante a unicidade de identificação para cada pedido enviado.
-     * Utiliza-se um lock para evitar que duas threads obtenham a mesma tag simultaneamente.
-     * @return Um identificador numérico único para a sessão atual.
+     * Gera um identificador único para correlação de pedidos.
+     *
+     * @return Tag única para a sessão
      */
     private int nextTag() {
         tagLock.lock();
@@ -47,17 +52,18 @@ public class ClientLib implements AutoCloseable {
     }
 
     /**
-     * Coordena o ciclo completo de envio de pedido e receção de resposta.
-     * Este método centraliza a lógica de registo na tabela de pendentes antes do envio,
-     * prevenindo que a resposta chegue antes de estarmos prontos para a receber.
-     * @param type O código da operação definido no protocolo.
-     * @param data O payload de dados já serializado.
-     * @return O array de bytes contendo a resposta do servidor.
-     * @throws IOException Caso ocorra uma falha de rede.
-     * @throws InterruptedException Caso a thread seja interrompida durante a espera pela resposta.
+     * Executa o ciclo completo de pedido-resposta.
+     * Regista a tag antes do envio para garantir que a resposta não é perdida
+     * caso chegue antes de estarmos prontos para a receber.
+     *
+     * @param type Código da operação
+     * @param data Payload serializado
+     * @return Payload da resposta
+     * @throws IOException          Se ocorrer erro de rede
+     * @throws InterruptedException Se a thread for interrompida
      */
     private byte[] request(int type, byte[] data)
-        throws IOException, InterruptedException {
+            throws IOException, InterruptedException {
         int tag = nextTag();
         demux.register(tag);
         demux.send(tag, type, data);
@@ -65,15 +71,16 @@ public class ClientLib implements AutoCloseable {
     }
 
     /**
-     * Solicita a criação de uma nova conta de utilizador.
-     * @param user Nome de utilizador desejado.
-     * @param pass Palavra-passe associada.
-     * @return true se o servidor confirmou o registo com sucesso, false caso contrário.
-     * @throws IOException Se houver erro na transmissão de dados.
-     * @throws InterruptedException Se a operação for interrompida.
+     * Regista um novo utilizador no sistema.
+     *
+     * @param user Nome de utilizador
+     * @param pass Palavra-passe
+     * @return true se o registo foi bem-sucedido, false se o utilizador já existe
+     * @throws IOException          Se ocorrer erro de comunicação
+     * @throws InterruptedException Se a operação for interrompida
      */
     public boolean register(String user, String pass)
-        throws IOException, InterruptedException {
+            throws IOException, InterruptedException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(baos);
         out.writeUTF(user);
@@ -83,15 +90,16 @@ public class ClientLib implements AutoCloseable {
     }
 
     /**
-     * Tenta autenticar o utilizador para permitir acesso às funções de negócio.
-     * @param user Nome de utilizador.
-     * @param pass Palavra-passe.
-     * @return true se as credenciais forem válidas, false em caso de erro.
-     * @throws IOException Erro de comunicação com o servidor.
-     * @throws InterruptedException Thread interrompida durante a espera.
+     * Autentica o utilizador para acesso às operações de negócio.
+     *
+     * @param user Nome de utilizador
+     * @param pass Palavra-passe
+     * @return true se as credenciais são válidas
+     * @throws IOException          Se ocorrer erro de comunicação
+     * @throws InterruptedException Se a operação for interrompida
      */
     public boolean login(String user, String pass)
-        throws IOException, InterruptedException {
+            throws IOException, InterruptedException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(baos);
         out.writeUTF(user);
@@ -101,15 +109,16 @@ public class ClientLib implements AutoCloseable {
     }
 
     /**
-     * Regista uma nova ocorrência de venda no sistema.
-     * @param prod Identificador do produto vendido.
-     * @param qty Quantidade transacionada.
-     * @param price Valor unitário da venda.
-     * @throws IOException Se falhar o envio do evento.
-     * @throws InterruptedException Se a thread for interrompida.
+     * Regista um evento de venda no dia atual.
+     *
+     * @param prod  Identificador do produto
+     * @param qty   Quantidade vendida
+     * @param price Preço unitário
+     * @throws IOException          Se ocorrer erro de comunicação
+     * @throws InterruptedException Se a operação for interrompida
      */
     public void addEvent(String prod, int qty, double price)
-        throws IOException, InterruptedException {
+            throws IOException, InterruptedException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(baos);
         out.writeUTF(prod);
@@ -119,26 +128,29 @@ public class ClientLib implements AutoCloseable {
     }
 
     /**
-     * Sinaliza ao servidor que o dia atual deve ser fechado e persistido.
-     * Esta operação é fundamental para mover dados da memória volátil para o armazenamento permanente.
-     * @throws IOException Erro ao contactar o servidor.
-     * @throws InterruptedException Se a thread for interrompida.
+     * Encerra o dia atual e persiste os dados em disco.
+     * Esta operação é atómica e despoleta a notificação de todas as threads
+     * em espera por eventos do dia corrente.
+     *
+     * @throws IOException          Se ocorrer erro de comunicação
+     * @throws InterruptedException Se a operação for interrompida
      */
     public void newDay() throws IOException, InterruptedException {
         request(Protocol.NEW_DAY, new byte[0]);
     }
 
     /**
-     * Solicita um cálculo estatístico sobre o histórico de vendas de um produto.
-     * @param type O tipo de agregação (Soma, Máximo, Média ou Volume).
-     * @param prod O produto a analisar.
-     * @param days O número de dias retroativos para o cálculo.
-     * @return O resultado numérico da agregação calculada pelo servidor.
-     * @throws IOException Caso ocorra erro de rede ou processamento remoto.
-     * @throws InterruptedException Se a thread for interrompida.
+     * Consulta uma agregação estatística sobre vendas históricas.
+     *
+     * @param type Tipo de agregação (AGGR_QTY, AGGR_VOL, AGGR_AVG, AGGR_MAX)
+     * @param prod Produto a analisar
+     * @param days Número de dias retroativos
+     * @return Valor calculado da agregação
+     * @throws IOException          Se ocorrer erro de comunicação
+     * @throws InterruptedException Se a operação for interrompida
      */
     public double getAggregation(int type, String prod, int days)
-        throws IOException, InterruptedException {
+            throws IOException, InterruptedException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(baos);
         out.writeUTF(prod);
@@ -148,34 +160,40 @@ public class ClientLib implements AutoCloseable {
     }
 
     /**
-     * Recupera eventos históricos filtrados e reconstrói as strings a partir do dicionário.
-     * O uso de dicionário é uma otimização para evitar o envio repetido de strings longas na rede.
-     * @param day O dia histórico pretendido.
-     * @param filterSet O conjunto de produtos que desejamos filtrar.
-     * @return Uma lista de strings formatadas com o detalhe das vendas.
-     * @throws IOException Erro na desserialização ou rede.
-     * @throws InterruptedException Se a thread for interrompida.
+     * Recupera eventos filtrados de um dia específico.
+     * Os dados são recebidos com compressão por dicionário, onde strings
+     * repetidas são substituídas por índices numéricos para reduzir o
+     * tamanho da transmissão.
+     *
+     * @param day       Dia histórico a consultar
+     * @param filterSet Conjunto de produtos a incluir no resultado
+     * @return Lista de strings formatadas com os detalhes das vendas
+     * @throws IOException          Se ocorrer erro de comunicação
+     * @throws InterruptedException Se a operação for interrompida
      */
     public List<String> getEvents(int day, Set<String> filterSet)
-        throws IOException, InterruptedException {
+            throws IOException, InterruptedException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(baos);
         out.writeInt(day);
         out.writeInt(filterSet.size());
-        for (String s : filterSet) out.writeUTF(s);
+        for (String s : filterSet) {
+            out.writeUTF(s);
+        }
 
         byte[] res = request(Protocol.FILTER, baos.toByteArray());
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(res));
 
-        // Reconstrução do dicionário enviado pelo servidor para poupar largura de banda
+        // Reconstrução do dicionário de compressão
         int dictSize = in.readInt();
         String[] dictionary = new String[dictSize];
-        for (int i = 0; i < dictSize; i++) dictionary[i] = in.readUTF();
+        for (int i = 0; i < dictSize; i++) {
+            dictionary[i] = in.readUTF();
+        }
 
         int numEvents = in.readInt();
         List<String> events = new ArrayList<>();
         for (int i = 0; i < numEvents; i++) {
-            // Cada evento vem com um índice inteiro que aponta para o dicionário global da mensagem
             String p = dictionary[in.readInt()];
             int q = in.readInt();
             double pr = in.readDouble();
@@ -185,15 +203,18 @@ public class ClientLib implements AutoCloseable {
     }
 
     /**
-     * Coloca a thread em suspensão até que os dois produtos indicados sejam vendidos no mesmo dia.
-     * @param p1 Primeiro produto.
-     * @param p2 Segundo produto.
-     * @return true se o evento ocorreu no dia, false se o dia terminou sem a ocorrência.
-     * @throws IOException Falha de comunicação.
-     * @throws InterruptedException Interrupção da thread durante o bloqueio.
+     * Aguarda a venda simultânea de dois produtos no mesmo dia.
+     * Bloqueia a thread até que ambos os produtos sejam vendidos ou até
+     * que o dia termine.
+     *
+     * @param p1 Primeiro produto
+     * @param p2 Segundo produto
+     * @return true se ambos foram vendidos, false se o dia terminou
+     * @throws IOException          Se ocorrer erro de comunicação
+     * @throws InterruptedException Se a operação for interrompida
      */
     public boolean waitSimultaneous(String p1, String p2)
-        throws IOException, InterruptedException {
+            throws IOException, InterruptedException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(baos);
         out.writeUTF(p1);
@@ -203,27 +224,33 @@ public class ClientLib implements AutoCloseable {
     }
 
     /**
-     * Aguarda que ocorra uma sequência ininterrupta de vendas de um mesmo produto.
-     * @param n Número de vendas consecutivas necessárias.
-     * @return O nome do produto que atingiu a meta, ou null se o dia encerrou primeiro.
-     * @throws IOException Erro de rede.
-     * @throws InterruptedException Interrupção da thread.
+     * Aguarda uma sequência de N vendas consecutivas do mesmo produto.
+     * Bloqueia a thread até que a condição seja satisfeita ou até que
+     * o dia termine.
+     *
+     * @param n Número mínimo de vendas consecutivas
+     * @return Nome do produto que atingiu a meta, ou null se o dia terminou
+     * @throws IOException          Se ocorrer erro de comunicação
+     * @throws InterruptedException Se a operação for interrompida
      */
     public String waitConsecutive(int n)
-        throws IOException, InterruptedException {
+            throws IOException, InterruptedException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(baos);
         out.writeInt(n);
         byte[] res = request(Protocol.WAIT_CONSEC, baos.toByteArray());
-        if (res.length == 0) return null;
+        if (res.length == 0) {
+            return null;
+        }
         return new DataInputStream(new ByteArrayInputStream(res)).readUTF();
     }
 
     /**
-     * Consulta o dia atual no qual o servidor está a registar eventos.
-     * @return O número do dia atual.
-     * @throws IOException Erro de rede.
-     * @throws InterruptedException Operação interrompida.
+     * Consulta o dia atual do servidor.
+     *
+     * @return Número do dia corrente
+     * @throws IOException          Se ocorrer erro de comunicação
+     * @throws InterruptedException Se a operação for interrompida
      */
     public int getCurrentDay() throws IOException, InterruptedException {
         byte[] res = request(Protocol.GET_CURRENT_DAY, new byte[0]);
@@ -231,8 +258,9 @@ public class ClientLib implements AutoCloseable {
     }
 
     /**
-     * Encerra todos os recursos de rede associados à biblioteca.
-     * @throws IOException Se ocorrer um erro ao fechar o demultiplexador ou socket.
+     * Encerra a ligação com o servidor.
+     *
+     * @throws IOException Se ocorrer erro ao fechar a conexão
      */
     @Override
     public void close() throws IOException {
