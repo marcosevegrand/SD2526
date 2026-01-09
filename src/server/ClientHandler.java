@@ -65,7 +65,6 @@ public class ClientHandler implements Runnable {
      */
     @Override
     public void run() {
-        String clientInfo = "cliente desconhecido";
         try {
             while (running) {
                 try {
@@ -83,7 +82,7 @@ public class ClientHandler implements Runnable {
             }
         } catch (EOFException e) {
             // Cliente fechou a conexão graciosamente
-            System.out.println("[ClientHandler] Cliente desconectou: " + clientInfo);
+            System.out.println("[ClientHandler] Cliente desconectou");
         } catch (IOException e) {
             // Erro de rede - cliente provavelmente desconectou
             if (running) {
