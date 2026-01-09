@@ -5,6 +5,7 @@ import common.Protocol;
 import java.io.*;
 import java.net.Socket;
 import java.util.*;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -18,6 +19,12 @@ import java.util.concurrent.locks.ReentrantLock;
  * executem operações concorrentemente sobre a mesma instância.
  */
 public class ClientLib implements AutoCloseable {
+
+    /** Timeout para operações normais (30 segundos). */
+    private static final long DEFAULT_TIMEOUT_MS = 30000;
+
+    /** Timeout para operações bloqueantes como notificações (24 horas). */
+    private static final long BLOCKING_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
     private final Demultiplexer demux;
     private int tagCounter = 0;
@@ -52,9 +59,7 @@ public class ClientLib implements AutoCloseable {
     }
 
     /**
-     * Executa o ciclo completo de pedido-resposta.
-     * Regista a tag antes do envio para garantir que a resposta não é perdida
-     * caso chegue antes de estarmos prontos para a receber.
+     * Executa o ciclo completo de pedido-resposta com timeout padrão.
      *
      * @param type Código da operação
      * @param data Payload serializado
@@ -64,10 +69,31 @@ public class ClientLib implements AutoCloseable {
      */
     private byte[] request(int type, byte[] data)
             throws IOException, InterruptedException {
+        return request(type, data, DEFAULT_TIMEOUT_MS);
+    }
+
+    /**
+     * Executa o ciclo completo de pedido-resposta com timeout configurável.
+     * Regista a tag antes do envio para garantir que a resposta não é perdida
+     * caso chegue antes de estarmos prontos para a receber.
+     *
+     * @param type      Código da operação
+     * @param data      Payload serializado
+     * @param timeoutMs Timeout em milissegundos
+     * @return Payload da resposta
+     * @throws IOException          Se ocorrer erro de rede ou timeout
+     * @throws InterruptedException Se a thread for interrompida
+     */
+    private byte[] request(int type, byte[] data, long timeoutMs)
+            throws IOException, InterruptedException {
         int tag = nextTag();
         demux.register(tag);
-        demux.send(tag, type, data);
-        return demux.receive(tag);
+        try {
+            demux.send(tag, type, data);
+            return demux.receive(tag, timeoutMs);
+        } catch (TimeoutException e) {
+            throw new IOException("Operação excedeu o tempo limite", e);
+        }
     }
 
     /**
@@ -207,6 +233,8 @@ public class ClientLib implements AutoCloseable {
      * Bloqueia a thread até que ambos os produtos sejam vendidos ou até
      * que o dia termine.
      *
+     * NOTA: Esta é uma operação bloqueante com timeout alargado.
+     *
      * @param p1 Primeiro produto
      * @param p2 Segundo produto
      * @return true se ambos foram vendidos, false se o dia terminou
@@ -219,7 +247,8 @@ public class ClientLib implements AutoCloseable {
         DataOutputStream out = new DataOutputStream(baos);
         out.writeUTF(p1);
         out.writeUTF(p2);
-        byte[] res = request(Protocol.WAIT_SIMUL, baos.toByteArray());
+        // Usar timeout alargado para operações bloqueantes
+        byte[] res = request(Protocol.WAIT_SIMUL, baos.toByteArray(), BLOCKING_TIMEOUT_MS);
         return res.length > 0 && res[0] == 1;
     }
 
@@ -227,6 +256,8 @@ public class ClientLib implements AutoCloseable {
      * Aguarda uma sequência de N vendas consecutivas do mesmo produto.
      * Bloqueia a thread até que a condição seja satisfeita ou até que
      * o dia termine.
+     *
+     * NOTA: Esta é uma operação bloqueante com timeout alargado.
      *
      * @param n Número mínimo de vendas consecutivas
      * @return Nome do produto que atingiu a meta, ou null se o dia terminou
@@ -238,7 +269,8 @@ public class ClientLib implements AutoCloseable {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(baos);
         out.writeInt(n);
-        byte[] res = request(Protocol.WAIT_CONSEC, baos.toByteArray());
+        // Usar timeout alargado para operações bloqueantes
+        byte[] res = request(Protocol.WAIT_CONSEC, baos.toByteArray(), BLOCKING_TIMEOUT_MS);
         if (res.length == 0) {
             return null;
         }

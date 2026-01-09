@@ -14,6 +14,9 @@ import java.net.Socket;
  */
 public class Server {
 
+    /** Timeout de socket para detetar clientes inativos (2 minutos). */
+    private static final int SOCKET_TIMEOUT_MS = 120000;
+
     /**
      * Método principal que configura e inicia o servidor.
      *
@@ -106,14 +109,23 @@ public class Server {
             System.out.println("  S (séries em memória): " + S);
             System.out.println("  D (dias históricos): " + D);
             System.out.println("  Pool de workers: " + threads + " threads");
+            System.out.println("  Timeout de socket: " + (SOCKET_TIMEOUT_MS / 1000) + " segundos");
             System.out.println("========================================\n");
             System.out.println("À espera de conexões...");
 
             // Loop de aceitação de conexões
             while (true) {
                 Socket s = ss.accept();
+
+                // Configurar timeout no socket para detetar clientes inativos
+                // Isto evita que workers fiquem bloqueados indefinidamente
+                s.setSoTimeout(SOCKET_TIMEOUT_MS);
+                s.setTcpNoDelay(true);
+
+                System.out.println("[Server] Nova conexão de: " + s.getRemoteSocketAddress());
+
                 new Thread(
-                        new ClientHandler(new FramedStream(s), um, se, nm, wp, D)
+                        new ClientHandler(new FramedStream(s, SOCKET_TIMEOUT_MS), um, se, nm, wp, D)
                 ).start();
             }
         } finally {

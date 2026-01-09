@@ -93,7 +93,8 @@
     No lado do cliente, a arquitetura foi desenhada para satisfazer o requisito de uma ligação TCP única por cliente. O
     \texttt{Demultiplexer} centraliza a leitura do socket numa thread dedicada, distribuindo as respostas pelas threads
     de aplicação com base em \textit{tags}. Esta abordagem permite que múltiplas threads do cliente submetam pedidos
-    concorrentemente sem bloqueio de cabeça de linha.
+    concorrentemente sem bloqueio de cabeça de linha. A thread de leitura é nomeada e monitorizada para garantir que
+    falhas de comunicação são detetadas e propagadas a todas as operações pendentes.
 
     A comunicação é feita num formato binário, utilizando \texttt{DataInputStream} e \texttt{DataOutputStream} sobre um
     sistema de \textit{framing} (\texttt{FramedStream}) que garante que as mensagens são transmitidas e lidas na íntegra,
@@ -168,6 +169,13 @@
         \item A thread original bloqueia em \texttt{await()} até a sua resposta chegar.
     \end{enumerate}
     Este design garante que um pedido lento (ex: notificação bloqueante) não impede outros pedidos do mesmo cliente.
+
+    \subsection{Tolerância a Falhas de Comunicação}
+    Para resistir a falhas de comunicação inevitáveis em redes reais, o sistema implementa timeouts em dois níveis. No
+    socket, cliente e servidor configuram \texttt{SO\_TIMEOUT} para detetar rapidamente conexões mortas ou bloqueadas.
+    Na aplicação, operações normais expiram após 30 segundos, enquanto notificações bloqueantes aguardam indefinidamente.
+    Este desenho evita que buffers congestionados paralizem o sistema inteiro, garantindo que ambas as partes se recuperam
+    automaticamente quando a rede normaliza.
 
     \subsection{Persistência e Limpeza de Dados}
     O \texttt{StorageEngine} persiste o estado global (dia atual e marcador de limpeza) em \texttt{state.bin}, permitindo

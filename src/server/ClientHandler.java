@@ -3,6 +3,7 @@ package server;
 import common.FramedStream;
 import common.Protocol;
 import java.io.*;
+import java.net.SocketTimeoutException;
 import java.util.*;
 
 /**
@@ -23,6 +24,9 @@ public class ClientHandler implements Runnable {
 
     /** Indica se a sessão está autenticada. Volátil para visibilidade entre threads. */
     private volatile boolean authenticated = false;
+
+    /** Indica se o handler deve continuar a processar pedidos. */
+    private volatile boolean running = true;
 
     /**
      * Cria um novo handler para um cliente.
@@ -55,21 +59,49 @@ public class ClientHandler implements Runnable {
      * Lê frames continuamente e delega o processamento ao pool de threads,
      * permitindo que múltiplos pedidos do mesmo cliente sejam processados
      * em paralelo.
+     *
+     * Trata timeouts de socket para detetar clientes inativos e evitar
+     * bloqueios indefinidos.
      */
     @Override
     public void run() {
+        String clientInfo = "cliente desconhecido";
         try {
-            while (true) {
-                FramedStream.Frame f = stream.receive();
-                workerPool.submit(() -> handleRequest(f));
+            while (running) {
+                try {
+                    FramedStream.Frame f = stream.receive();
+                    workerPool.submit(() -> handleRequest(f));
+                } catch (SocketTimeoutException e) {
+                    // Timeout de leitura - verificar se devemos continuar
+                    if (!running) {
+                        break;
+                    }
+                    // Timeout mas ainda ativo - continuar a aguardar
+                    // Isto permite que o servidor detete clientes lentos/inativos
+                    continue;
+                }
             }
+        } catch (EOFException e) {
+            // Cliente fechou a conexão graciosamente
+            System.out.println("[ClientHandler] Cliente desconectou: " + clientInfo);
         } catch (IOException e) {
-            // Conexão fechada pelo cliente
+            // Erro de rede - cliente provavelmente desconectou
+            if (running) {
+                System.err.println("[ClientHandler] Erro de comunicação: " + e.getMessage());
+            }
         } finally {
-            try {
-                stream.close();
-            } catch (IOException ignored) {}
+            cleanup();
         }
+    }
+
+    /**
+     * Limpa recursos quando o handler termina.
+     */
+    private void cleanup() {
+        running = false;
+        try {
+            stream.close();
+        } catch (IOException ignored) {}
     }
 
     /**
@@ -87,11 +119,7 @@ public class ClientHandler implements Runnable {
             if (!authenticated &&
                     f.type != Protocol.REGISTER &&
                     f.type != Protocol.LOGIN) {
-                stream.send(
-                        f.tag,
-                        Protocol.STATUS_ERR,
-                        "Não autenticado".getBytes()
-                );
+                sendError(f.tag, "Não autenticado");
                 return;
             }
 
@@ -124,11 +152,7 @@ public class ClientHandler implements Runnable {
     private void handleRegister(int tag, DataInputStream in)
             throws IOException {
         boolean ok = userManager.register(in.readUTF(), in.readUTF());
-        stream.send(
-                tag,
-                Protocol.STATUS_OK,
-                new byte[] { (byte) (ok ? 1 : 0) }
-        );
+        sendResponse(tag, new byte[] { (byte) (ok ? 1 : 0) });
     }
 
     /**
@@ -140,11 +164,7 @@ public class ClientHandler implements Runnable {
      */
     private void handleLogin(int tag, DataInputStream in) throws IOException {
         authenticated = userManager.authenticate(in.readUTF(), in.readUTF());
-        stream.send(
-                tag,
-                Protocol.STATUS_OK,
-                new byte[] { (byte) (authenticated ? 1 : 0) }
-        );
+        sendResponse(tag, new byte[] { (byte) (authenticated ? 1 : 0) });
     }
 
     /**
@@ -159,7 +179,7 @@ public class ClientHandler implements Runnable {
         String p = in.readUTF();
         storage.addEvent(p, in.readInt(), in.readDouble());
         notify.registerSale(p);
-        stream.send(tag, Protocol.STATUS_OK, new byte[0]);
+        sendResponse(tag, new byte[0]);
     }
 
     /**
@@ -171,7 +191,7 @@ public class ClientHandler implements Runnable {
     private void handleNewDay(int tag) throws IOException {
         storage.persistDay();
         notify.newDay();
-        stream.send(tag, Protocol.STATUS_OK, new byte[0]);
+        sendResponse(tag, new byte[0]);
     }
 
     /**
@@ -195,7 +215,7 @@ public class ClientHandler implements Runnable {
         double res = storage.aggregate(f.type, prod, days);
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         new DataOutputStream(b).writeDouble(res);
-        stream.send(f.tag, Protocol.STATUS_OK, b.toByteArray());
+        sendResponse(f.tag, b.toByteArray());
     }
 
     /**
@@ -263,11 +283,7 @@ public class ClientHandler implements Runnable {
         }
 
         boolean sim = notify.waitSimultaneous(p1, p2);
-        stream.send(
-                tag,
-                Protocol.STATUS_OK,
-                new byte[] { (byte) (sim ? 1 : 0) }
-        );
+        sendResponse(tag, new byte[] { (byte) (sim ? 1 : 0) });
     }
 
     /**
@@ -291,7 +307,7 @@ public class ClientHandler implements Runnable {
         if (prod != null) {
             new DataOutputStream(b).writeUTF(prod);
         }
-        stream.send(tag, Protocol.STATUS_OK, b.toByteArray());
+        sendResponse(tag, b.toByteArray());
     }
 
     /**
@@ -304,7 +320,23 @@ public class ClientHandler implements Runnable {
         int day = storage.getCurrentDay();
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         new DataOutputStream(b).writeInt(day);
-        stream.send(tag, Protocol.STATUS_OK, b.toByteArray());
+        sendResponse(tag, b.toByteArray());
+    }
+
+    /**
+     * Envia uma resposta de sucesso ao cliente.
+     * Se falhar o envio, marca o handler para terminar.
+     *
+     * @param tag  Tag do pedido original
+     * @param data Payload da resposta
+     */
+    private void sendResponse(int tag, byte[] data) {
+        try {
+            stream.send(tag, Protocol.STATUS_OK, data);
+        } catch (IOException e) {
+            // Falha ao enviar - cliente provavelmente desconectou
+            running = false;
+        }
     }
 
     /**
@@ -320,7 +352,10 @@ public class ClientHandler implements Runnable {
                     Protocol.STATUS_ERR,
                     msg != null ? msg.getBytes() : "Erro desconhecido".getBytes()
             );
-        } catch (IOException ignored) {}
+        } catch (IOException e) {
+            // Falha ao enviar - cliente provavelmente desconectou
+            running = false;
+        }
     }
 
     /**
@@ -330,36 +365,38 @@ public class ClientHandler implements Runnable {
      *
      * @param tag    Tag da resposta
      * @param events Lista de eventos a enviar
-     * @throws IOException Se ocorrer erro de comunicação
      */
-    private void sendFilteredEvents(int tag, List<StorageEngine.Sale> events)
-            throws IOException {
-        ByteArrayOutputStream b = new ByteArrayOutputStream();
-        DataOutputStream out = new DataOutputStream(b);
-        Map<String, Integer> dict = new HashMap<>();
-        List<String> dictList = new ArrayList<>();
+    private void sendFilteredEvents(int tag, List<StorageEngine.Sale> events) {
+        try {
+            ByteArrayOutputStream b = new ByteArrayOutputStream();
+            DataOutputStream out = new DataOutputStream(b);
+            Map<String, Integer> dict = new HashMap<>();
+            List<String> dictList = new ArrayList<>();
 
-        // Construção do dicionário de compressão
-        for (StorageEngine.Sale s : events) {
-            if (!dict.containsKey(s.prod)) {
-                dict.put(s.prod, dictList.size());
-                dictList.add(s.prod);
+            // Construção do dicionário de compressão
+            for (StorageEngine.Sale s : events) {
+                if (!dict.containsKey(s.prod)) {
+                    dict.put(s.prod, dictList.size());
+                    dictList.add(s.prod);
+                }
             }
-        }
 
-        // Escrita do dicionário
-        out.writeInt(dictList.size());
-        for (String s : dictList) {
-            out.writeUTF(s);
-        }
+            // Escrita do dicionário
+            out.writeInt(dictList.size());
+            for (String s : dictList) {
+                out.writeUTF(s);
+            }
 
-        // Escrita dos eventos com referências ao dicionário
-        out.writeInt(events.size());
-        for (StorageEngine.Sale s : events) {
-            out.writeInt(dict.get(s.prod));
-            out.writeInt(s.qty);
-            out.writeDouble(s.price);
+            // Escrita dos eventos com referências ao dicionário
+            out.writeInt(events.size());
+            for (StorageEngine.Sale s : events) {
+                out.writeInt(dict.get(s.prod));
+                out.writeInt(s.qty);
+                out.writeDouble(s.price);
+            }
+            sendResponse(tag, b.toByteArray());
+        } catch (IOException e) {
+            sendError(tag, "Erro ao serializar eventos: " + e.getMessage());
         }
-        stream.send(tag, Protocol.STATUS_OK, b.toByteArray());
     }
 }

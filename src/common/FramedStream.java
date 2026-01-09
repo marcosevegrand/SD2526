@@ -2,6 +2,7 @@ package common;
 
 import java.io.*;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -17,6 +18,9 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class FramedStream implements AutoCloseable {
 
+    /** Timeout por omissão para operações de socket (60 segundos). */
+    public static final int DEFAULT_TIMEOUT_MS = 60000;
+
     private final Socket socket;
     private final DataInputStream in;
     private final DataOutputStream out;
@@ -24,7 +28,7 @@ public class FramedStream implements AutoCloseable {
     private final ReentrantLock readLock = new ReentrantLock();
 
     /**
-     * Constrói um FramedStream sobre um socket existente.
+     * Constrói um FramedStream sobre um socket existente com timeout por omissão.
      * As streams são decoradas com buffers para melhorar o desempenho de I/O,
      * reduzindo o número de chamadas de sistema.
      *
@@ -32,7 +36,27 @@ public class FramedStream implements AutoCloseable {
      * @throws IOException Se ocorrer erro ao obter as streams do socket
      */
     public FramedStream(Socket socket) throws IOException {
+        this(socket, DEFAULT_TIMEOUT_MS);
+    }
+
+    /**
+     * Constrói um FramedStream sobre um socket existente com timeout configurável.
+     *
+     * @param socket    Socket TCP ativo para comunicação
+     * @param timeoutMs Timeout em milissegundos para operações de leitura (0 = infinito)
+     * @throws IOException Se ocorrer erro ao obter as streams do socket
+     */
+    public FramedStream(Socket socket, int timeoutMs) throws IOException {
         this.socket = socket;
+
+        // Configurar timeout para detetar conexões mortas
+        if (timeoutMs > 0) {
+            socket.setSoTimeout(timeoutMs);
+        }
+
+        // Desativar Nagle's algorithm para reduzir latência
+        socket.setTcpNoDelay(true);
+
         this.in = new DataInputStream(
                 new BufferedInputStream(socket.getInputStream())
         );
@@ -55,7 +79,7 @@ public class FramedStream implements AutoCloseable {
      * @param tag     Identificador único do pedido para correlação
      * @param type    Código da operação
      * @param payload Dados binários da mensagem
-     * @throws IOException Se ocorrer erro de escrita na rede
+     * @throws IOException Se ocorrer erro de escrita na rede ou timeout
      */
     public void send(int tag, int type, byte[] payload) throws IOException {
         writeLock.lock();
@@ -72,12 +96,13 @@ public class FramedStream implements AutoCloseable {
 
     /**
      * Recebe um frame completo da rede.
-     * Bloqueia até que todos os bytes do frame estejam disponíveis.
-     * O método readFully garante que não são devolvidos frames parciais
-     * devido a fragmentação TCP.
+     * Bloqueia até que todos os bytes do frame estejam disponíveis ou até
+     * ocorrer timeout. O método readFully garante que não são devolvidos
+     * frames parciais devido a fragmentação TCP.
      *
      * @return Frame contendo tag, tipo e payload
-     * @throws IOException Se ocorrer erro de leitura ou fecho de conexão
+     * @throws IOException            Se ocorrer erro de leitura ou fecho de conexão
+     * @throws SocketTimeoutException Se o timeout for atingido durante a leitura
      */
     public Frame receive() throws IOException {
         readLock.lock();
@@ -91,6 +116,15 @@ public class FramedStream implements AutoCloseable {
         } finally {
             readLock.unlock();
         }
+    }
+
+    /**
+     * Verifica se o socket está fechado.
+     *
+     * @return true se o socket estiver fechado
+     */
+    public boolean isClosed() {
+        return socket == null || socket.isClosed();
     }
 
     /**
