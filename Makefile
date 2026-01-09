@@ -6,7 +6,7 @@ THREADS ?= 100
 HOST ?= localhost
 CLIENT_PORT ?= 12345
 
-.PHONY: all run-server run-cli run-feat-test run-stress-test docs clean
+.PHONY: all run-server run-cli run-feat-test run-stress-test report clean
 
 # Default target: compile everything
 all:
@@ -53,6 +53,15 @@ docs:
 	mkdir -p docs
 	javadoc -d docs -cp bin src/common/*.java src/client/*.java src/server/*.java
 	@echo "Documentation generated in docs/"
+
+# Build PDF into ./report and keep aux files in ./report/latex (cleaned by clean-report)
+report:
+	@echo "Building report PDF..."
+	cd report/latex && pdflatex -interaction=nonstopmode -halt-on-error report.tex
+	cd report/latex && pdflatex -interaction=nonstopmode -halt-on-error report.tex
+	mv -f report/latex/report.pdf report/report.pdf
+	rm -f report/latex/*.aux report/latex/*.log report/latex/*.out report/latex/*.toc report/latex/*.synctex.gz report/latex/report.pdf
+	@echo "Report generated at report/report.pdf"
 
 # Clean build artifacts
 clean:

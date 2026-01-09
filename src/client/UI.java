@@ -315,41 +315,43 @@ public class UI {
             "  registar <user> <pass>   - Cria uma nova conta no servidor."
         );
         System.out.println(
-            "  entrar <user> <pass>     - Autentica-se para aceder às funções."
+            "  entrar <user> <pass>         - Autentica-se para aceder às funções."
         );
-        System.out.println("  sair                     - Encerra a aplicação.");
+        System.out.println(
+            "  sair                         - Encerra a aplicação."
+        );
         System.out.println("\nDados:");
         System.out.println(
-            "  dia                      - Consulta o dia atual no servidor."
+            "  dia                          - Consulta o dia atual no servidor."
         );
         System.out.println(
-            "  evento <prod> <qtd> <p>  - Regista uma venda de um produto no dia atual."
+            "  evento <prod> <qtd> <preco>  - Regista uma venda de um produto no dia atual."
         );
         System.out.println(
-            "  novodia                  - Fecha o dia atual e guarda os dados permanentemente."
+            "  novodia                      - Fecha o dia atual e guarda os dados permanentemente."
         );
         System.out.println(
-            "  filtrar <dia> <p1> <p2>  - Lista vendas de certos produtos num dia passado."
+            "  filtrar <dia> <p1> <p2> ...  - Lista vendas de certos produtos num dia passado."
         );
         System.out.println("\nEstatísticas (histórico):");
         System.out.println(
-            "  qtd <prod> <dias>        - Soma da quantidade vendida nos últimos N dias."
+            "  qtd <prod> <dias>            - Soma da quantidade vendida nos últimos N dias."
         );
         System.out.println(
-            "  vol <prod> <dias>        - Valor financeiro total (qtd * preço) nos últimos N dias."
+            "  vol <prod> <dias>            - Valor financeiro total (qtd * preço) nos últimos N dias."
         );
         System.out.println(
-            "  media <prod> <dias>      - Preço médio ponderado nos últimos N dias."
+            "  media <prod> <dias>          - Preço médio ponderado nos últimos N dias."
         );
         System.out.println(
-            "  max <prod> <dias>        - Preço unitário máximo registado nos últimos N dias."
+            "  max <prod> <dias>            - Preço unitário máximo registado nos últimos N dias."
         );
         System.out.println("\nNotificações (bloqueante):");
         System.out.println(
-            "  simul <prod1> <prod2>    - Espera que ambos os produtos sejam vendidos no mesmo dia."
+            "  simul <prod1> <prod2>        - Espera que ambos os produtos sejam vendidos no mesmo dia."
         );
         System.out.println(
-            "  consec <N>               - Espera que um produto seja vendido N vezes seguidas."
+            "  consec <N>                   - Espera que um produto seja vendido N vezes seguidas."
         );
         System.out.println("--------------------------\n");
     }

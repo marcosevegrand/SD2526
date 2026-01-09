@@ -19,8 +19,6 @@ public class NotificationManager {
     private int consecutiveCount = 0;
     private int currentDay = 0;
     /**
-     * CORRIGIDO: Map que rastreia (consecutive count -> Set de produtos)
-     * em vez de sobrescrever com um único produto.
      * Permite que múltiplas threads aguardando diferentes contagens consecutivas
      * encontrem os resultados corretos.
      */
